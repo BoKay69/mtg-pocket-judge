@@ -4,8 +4,6 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AppHeader, TabBar, FormatPicker } from "@/components/layout";
 import {
-  StackVisualizer,
-  CustomStackBuilder,
   StackSimulator,
 } from "@/components/stack";
 import { KeywordDictionary } from "@/components/glossary";
@@ -15,8 +13,6 @@ import type { Format } from "@/types";
 
 const TABS = [
   { id: "simulator", label: "Simulator", icon: "⚖" },
-  { id: "stack", label: "Examples", icon: "⚡" },
-  { id: "builder", label: "Builder", icon: "🔧" },
   { id: "glossary", label: "Glossary", icon: "📖" },
   { id: "search", label: "Search", icon: "🔍" },
 ];
@@ -51,20 +47,6 @@ export default function HomePage() {
             transition={{ duration: 0.2 }}
           >
             {activeTab === "simulator" && <StackSimulator />}
-
-            {activeTab === "stack" && (
-              <>
-                <SectionLabel>Example Scenarios</SectionLabel>
-                <StackVisualizer />
-              </>
-            )}
-
-            {activeTab === "builder" && (
-              <>
-                <SectionLabel>Build Your Stack</SectionLabel>
-                <CustomStackBuilder />
-              </>
-            )}
 
             {activeTab === "glossary" && (
               <>
