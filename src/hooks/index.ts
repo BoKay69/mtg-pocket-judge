@@ -88,3 +88,56 @@ export function useCardAutocomplete() {
 
   return { query, setQuery, suggestions, loading };
 }
+
+// ─── Full card fetch hook ────────────────────────────────────────────────────
+
+import type { ScryfallCard } from "@/types";
+
+export function useCardFetch() {
+  const [card, setCard] = useState<ScryfallCard | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchCard = useCallback(async (name: string) => {
+    if (!name.trim()) return null;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`
+      );
+      if (!res.ok) {
+        // Try fuzzy match
+        const fuzzyRes = await fetch(
+          `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`
+        );
+        if (!fuzzyRes.ok) {
+          setError("Card not found");
+          setCard(null);
+          setLoading(false);
+          return null;
+        }
+        const data = await fuzzyRes.json();
+        setCard(data);
+        setLoading(false);
+        return data as ScryfallCard;
+      }
+      const data = await res.json();
+      setCard(data);
+      setLoading(false);
+      return data as ScryfallCard;
+    } catch (err) {
+      setError("Failed to fetch card");
+      setCard(null);
+      setLoading(false);
+      return null;
+    }
+  }, []);
+
+  const clearCard = useCallback(() => {
+    setCard(null);
+    setError(null);
+  }, []);
+
+  return { card, loading, error, fetchCard, clearCard };
+}

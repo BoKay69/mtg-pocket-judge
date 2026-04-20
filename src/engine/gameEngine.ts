@@ -19,32 +19,71 @@ import { generateId, getOpponent } from "./utils";
 
 // ─── Initial State Factory ───────────────────────────────────────────────────
 
+export interface GameConfig {
+  format?: string;
+  playerCount?: 2 | 4;
+  startingLife?: number;
+  activePlayer?: PlayerId;
+}
+
+const PLAYER_LABELS: Record<PlayerId, string> = {
+  player_a: "Player A",
+  player_b: "Player B",
+  player_c: "Player C",
+  player_d: "Player D",
+};
+
 export function createInitialState(
-  activePlayer: PlayerId = "player_a"
+  config: GameConfig | PlayerId = "player_a"
 ): GameState {
+  // Backwards compatible — accept just a PlayerId
+  const cfg: GameConfig =
+    typeof config === "string" ? { activePlayer: config } : config;
+
+  const format = cfg.format || "modern";
+  const isCommander = format === "commander";
+  const playerCount = cfg.playerCount || (isCommander ? 4 : 2);
+  const startingLife = cfg.startingLife ?? (isCommander ? 40 : 20);
+  const activePlayer = cfg.activePlayer || "player_a";
+
+  const playerIds: PlayerId[] =
+    playerCount === 4
+      ? ["player_a", "player_b", "player_c", "player_d"]
+      : ["player_a", "player_b"];
+
+  const players: Partial<Record<PlayerId, import("./types").Player>> = {};
+  const graveyards: Partial<Record<PlayerId, string[]>> = {};
+  const hasPassed: Partial<Record<PlayerId, boolean>> = {};
+
+  for (const pid of playerIds) {
+    players[pid] = { id: pid, label: PLAYER_LABELS[pid], life: startingLife };
+    graveyards[pid] = [];
+    hasPassed[pid] = false;
+  }
+
   return {
-    players: {
-      player_a: { id: "player_a", label: "Player A", life: 20 },
-      player_b: { id: "player_b", label: "Player B", life: 20 },
-    },
+    players,
+    playerOrder: playerIds,
     turnNumber: 1,
     activePlayer,
     currentStep: "main",
     battlefield: [],
     stack: [],
-    graveyards: { player_a: [], player_b: [] },
+    graveyards,
     exile: [],
     priority: {
       state: "waiting_for_action",
       activePlayer,
       priorityHolder: activePlayer,
-      hasPassed: { player_a: false, player_b: false },
+      hasPassed,
       splitSecondActive: false,
+      playerOrder: playerIds,
     },
     pendingTriggers: [],
     eventLog: [],
     actionLog: [],
     stepCount: 0,
+    format,
   };
 }
 
@@ -130,7 +169,7 @@ function handleCastSpell(
   state.stack.push(stackItem);
 
   // Log it
-  const playerLabel = state.players[spell.controller].label;
+  const playerLabel = state.players[spell.controller]!.label;
   addLog(state, "cast_spell", spell.controller,
     `${playerLabel} casts ${spell.name}`,
     spell.targets.length > 0
@@ -173,7 +212,7 @@ function handleCastSpell(
   // Active player gets priority first after casting
   state.priority.priorityHolder = state.activePlayer;
   addLog(state, "priority_receive", state.activePlayer,
-    `${state.players[state.activePlayer].label} receives priority`,
+    `${state.players[state.activePlayer]!.label} receives priority`,
     "May cast an instant, activate an ability, or pass."
   );
 
@@ -189,7 +228,7 @@ function handleActivateAbility(
   // Mana abilities don't use the stack
   if (ability.isManaAbility) {
     addLog(state, "activate_ability", ability.controller,
-      `${state.players[ability.controller].label} activates mana ability: ${ability.name}`,
+      `${state.players[ability.controller]!.label} activates mana ability: ${ability.name}`,
       "Mana abilities resolve immediately and don't use the stack."
     );
     return state;
@@ -212,7 +251,7 @@ function handleActivateAbility(
 
   state.stack.push(stackItem);
 
-  const playerLabel = state.players[ability.controller].label;
+  const playerLabel = state.players[ability.controller]!.label;
   addLog(state, "activate_ability", ability.controller,
     `${playerLabel} activates ${ability.name}`,
     ability.effect || undefined,
@@ -223,7 +262,7 @@ function handleActivateAbility(
   resetPriority(state);
   state.priority.priorityHolder = state.activePlayer;
   addLog(state, "priority_receive", state.activePlayer,
-    `${state.players[state.activePlayer].label} receives priority`
+    `${state.players[state.activePlayer]!.label} receives priority`
   );
 
   return state;
@@ -233,8 +272,8 @@ function handleActivateAbility(
 
 function handlePassPriority(state: GameState): GameState {
   const holder = state.priority.priorityHolder;
-  const opponent = getOpponent(holder);
-  const playerLabel = state.players[holder].label;
+  const playerLabel = state.players[holder]!.label;
+  const playerOrder = state.playerOrder;
 
   // Mark this player as having passed
   state.priority.hasPassed[holder] = true;
@@ -243,24 +282,27 @@ function handlePassPriority(state: GameState): GameState {
     `${playerLabel} passes priority`
   );
 
-  // Check if BOTH players have passed
-  if (state.priority.hasPassed[opponent]) {
-    // Both passed — resolve top of stack or advance phase
+  // Check if ALL players have passed
+  const allPassed = playerOrder.every((pid) => state.priority.hasPassed[pid]);
+
+  if (allPassed) {
+    // Everyone passed — resolve top of stack or advance phase
     if (state.stack.length > 0) {
       return resolveTopOfStack(state);
     } else {
-      // Stack is empty, both passed — advance to next step
+      // Stack is empty, all passed — advance to next step
       addLog(state, "explanation", undefined,
-        "Both players have passed with an empty stack.",
+        "All players have passed with an empty stack.",
         "The game advances to the next step."
       );
       return advanceStep(state);
     }
   } else {
-    // Pass priority to opponent
-    state.priority.priorityHolder = opponent;
-    addLog(state, "priority_receive", opponent,
-      `${state.players[opponent].label} receives priority`,
+    // Pass priority to next player in turn order
+    const nextPlayer = getNextPlayer(holder, playerOrder);
+    state.priority.priorityHolder = nextPlayer;
+    addLog(state, "priority_receive", nextPlayer,
+      `${state.players[nextPlayer]!.label} receives priority`,
       state.stack.length > 0
         ? `Stack has ${state.stack.length} item${state.stack.length > 1 ? "s" : ""}. May respond or pass.`
         : "May cast a spell, activate an ability, or pass."
@@ -303,7 +345,7 @@ function resolveTopOfStack(state: GameState): GameState {
   }
 
   // Log resolution
-  const playerLabel = state.players[item.controller].label;
+  const playerLabel = state.players[item.controller]!.label;
   addLog(state, "resolve", item.controller,
     `${item.name} resolves`,
     item.effect || `${item.name} has its effect.`,
@@ -351,7 +393,7 @@ function handlePermanentEnters(
   state.battlefield.push(permanent);
 
   addLog(state, "game_event", item.controller,
-    `${item.name} enters the battlefield under ${state.players[item.controller].label}'s control`
+    `${item.name} enters the battlefield under ${state.players[item.controller]!.label}'s control`
   );
 
   // Generate ETB event
@@ -394,7 +436,7 @@ function afterResolution(
     state.priority.state = "waiting_for_action";
     state.priority.priorityHolder = state.activePlayer;
     addLog(state, "priority_receive", state.activePlayer,
-      `${state.players[state.activePlayer].label} receives priority`,
+      `${state.players[state.activePlayer]!.label} receives priority`,
       `Stack has ${state.stack.length} item${state.stack.length > 1 ? "s" : ""} remaining.`
     );
   } else {
@@ -467,7 +509,7 @@ function destroyPermanent(state: GameState, permanent: Permanent): void {
 
   addLog(state, "state_based_action", undefined,
     `${permanent.name} dies`,
-    `Moved from the battlefield to ${state.players[permanent.owner].label}'s graveyard.`,
+    `Moved from the battlefield to ${state.players[permanent.owner]!.label}'s graveyard.`,
     true
   );
 
@@ -549,12 +591,12 @@ function advanceStep(state: GameState): GameState {
   const nextIdx = currentIdx + 1;
 
   if (nextIdx >= TURN_STEP_ORDER.length) {
-    // End of turn — start new turn
+    // End of turn — start new turn, advance to next player in order
     state.turnNumber++;
-    state.activePlayer = getOpponent(state.activePlayer);
+    state.activePlayer = getNextPlayer(state.activePlayer, state.playerOrder);
     state.currentStep = TURN_STEP_ORDER[0];
     addLog(state, "phase_change", undefined,
-      `Turn ${state.turnNumber} — ${state.players[state.activePlayer].label}'s turn`,
+      `Turn ${state.turnNumber} — ${state.players[state.activePlayer]!.label}'s turn`,
       undefined, true
     );
   } else {
@@ -617,7 +659,7 @@ function handleUntapStep(state: GameState): void {
   }
   if (untapped > 0) {
     addLog(state, "game_event", state.activePlayer,
-      `${state.players[state.activePlayer].label} untaps ${untapped} permanent${untapped > 1 ? "s" : ""}`
+      `${state.players[state.activePlayer]!.label} untaps ${untapped} permanent${untapped > 1 ? "s" : ""}`
     );
   }
 }
@@ -664,10 +706,10 @@ function handleSetLife(
   player: PlayerId,
   amount: number
 ): GameState {
-  const oldLife = state.players[player].life;
-  state.players[player].life = amount;
+  const oldLife = state.players[player]!.life;
+  state.players[player]!.life = amount;
   addLog(state, "game_event", player,
-    `${state.players[player].label}'s life total: ${oldLife} → ${amount}`
+    `${state.players[player]!.label}'s life total: ${oldLife} → ${amount}`
   );
   return state;
 }
@@ -680,7 +722,7 @@ function handleDealDamage(
 ): GameState {
   // Check if target is a player
   if (targetId === "player_a" || targetId === "player_b") {
-    const player = state.players[targetId as PlayerId];
+    const player = state.players[targetId as PlayerId]!;
     player.life -= amount;
     addLog(state, "game_event", undefined,
       `${player.label} takes ${amount} damage (${player.life + amount} → ${player.life})`,
@@ -724,7 +766,7 @@ function handleDealDamage(
 
     // Check for lifelink on source
     if (source?.keywords.includes("lifelink")) {
-      const owner = state.players[source.controller];
+      const owner = state.players[source.controller]!;
       owner.life += amount;
       addLog(state, "game_event", source.controller,
         `Lifelink: ${owner.label} gains ${amount} life (now ${owner.life})`
@@ -760,8 +802,17 @@ function handleDealDamage(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function resetPriority(state: GameState): void {
-  state.priority.hasPassed = { player_a: false, player_b: false };
+  const hasPassed: Partial<Record<PlayerId, boolean>> = {};
+  for (const pid of state.playerOrder) {
+    hasPassed[pid] = false;
+  }
+  state.priority.hasPassed = hasPassed;
   state.priority.state = "waiting_for_action";
+}
+
+function getNextPlayer(current: PlayerId, playerOrder: PlayerId[]): PlayerId {
+  const idx = playerOrder.indexOf(current);
+  return playerOrder[(idx + 1) % playerOrder.length];
 }
 
 function addLog(

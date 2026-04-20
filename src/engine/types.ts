@@ -1,6 +1,9 @@
 // ─── Players ─────────────────────────────────────────────────────────────────
 
-export type PlayerId = "player_a" | "player_b";
+export type PlayerId = "player_a" | "player_b" | "player_c" | "player_d";
+
+export const ALL_PLAYER_IDS: PlayerId[] = ["player_a", "player_b", "player_c", "player_d"];
+export const TWO_PLAYER_IDS: PlayerId[] = ["player_a", "player_b"];
 
 export interface Player {
   id: PlayerId;
@@ -224,8 +227,9 @@ export interface PriorityInfo {
   state: PriorityState;
   activePlayer: PlayerId; // Whose turn it is
   priorityHolder: PlayerId; // Who currently holds priority
-  hasPassed: Record<PlayerId, boolean>; // Who has passed since last stack change
+  hasPassed: Partial<Record<PlayerId, boolean>>; // Who has passed since last stack change
   splitSecondActive: boolean; // True if a split second spell is on stack
+  playerOrder: PlayerId[]; // Turn order (2 for normal, 4 for commander)
 }
 
 // ─── Action Log ──────────────────────────────────────────────────────────────
@@ -259,7 +263,8 @@ export interface LogEntry {
 
 export interface GameState {
   // Players
-  players: Record<PlayerId, Player>;
+  players: Partial<Record<PlayerId, Player>>;
+  playerOrder: PlayerId[]; // Which players are in this game
 
   // Turn info
   turnNumber: number;
@@ -269,7 +274,7 @@ export interface GameState {
   // Zones
   battlefield: Permanent[];
   stack: EngineStackItem[];
-  graveyards: Record<PlayerId, string[]>; // Card names for display
+  graveyards: Partial<Record<PlayerId, string[]>>; // Card names for display
   exile: string[];
 
   // Priority system
@@ -284,6 +289,7 @@ export interface GameState {
 
   // Metadata
   stepCount: number; // Total actions taken, for timestamps
+  format: string; // "standard", "commander", etc.
 }
 
 // ─── User Actions ────────────────────────────────────────────────────────────

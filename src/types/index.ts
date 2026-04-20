@@ -109,6 +109,8 @@ export interface FormatInfo {
   description: string;
   minDeckSize: number;
   maxCopies: number;
+  startingLife: number;
+  playerCount: 2 | 4;
 }
 
 // ─── App State ───────────────────────────────────────────────────────────────

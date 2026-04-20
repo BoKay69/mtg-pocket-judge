@@ -8,6 +8,8 @@ export const FORMATS: FormatInfo[] = [
     description: "Current 2-year rotation of sets",
     minDeckSize: 60,
     maxCopies: 4,
+    startingLife: 20,
+    playerCount: 2,
   },
   {
     id: "pioneer",
@@ -16,6 +18,8 @@ export const FORMATS: FormatInfo[] = [
     description: "Return to Ravnica forward, no fetch lands",
     minDeckSize: 60,
     maxCopies: 4,
+    startingLife: 20,
+    playerCount: 2,
   },
   {
     id: "modern",
@@ -24,6 +28,8 @@ export const FORMATS: FormatInfo[] = [
     description: "8th Edition forward, powerful and diverse",
     minDeckSize: 60,
     maxCopies: 4,
+    startingLife: 20,
+    playerCount: 2,
   },
   {
     id: "legacy",
@@ -32,14 +38,18 @@ export const FORMATS: FormatInfo[] = [
     description: "All sets with a curated ban list",
     minDeckSize: 60,
     maxCopies: 4,
+    startingLife: 20,
+    playerCount: 2,
   },
   {
     id: "commander",
     label: "Commander",
     icon: "♛",
-    description: "100-card singleton, multiplayer",
+    description: "100-card singleton, 4-player multiplayer",
     minDeckSize: 100,
     maxCopies: 1,
+    startingLife: 40,
+    playerCount: 4,
   },
   {
     id: "pauper",
@@ -48,5 +58,7 @@ export const FORMATS: FormatInfo[] = [
     description: "Commons only, surprisingly deep",
     minDeckSize: 60,
     maxCopies: 4,
+    startingLife: 20,
+    playerCount: 2,
   },
 ];

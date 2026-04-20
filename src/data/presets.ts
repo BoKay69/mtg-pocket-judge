@@ -304,8 +304,11 @@ export const PRESET_CATEGORIES = [
 
 // ─── Load Preset into GameState ──────────────────────────────────────────────
 
-export function loadPreset(preset: ScenarioPreset): GameState {
-  const state = createInitialState(preset.setup.activePlayer);
+export function loadPreset(preset: ScenarioPreset, format?: string): GameState {
+  const state = createInitialState({
+    activePlayer: preset.setup.activePlayer,
+    format: format || "modern",
+  });
 
   // Set step
   if (preset.setup.step) {
@@ -313,10 +316,10 @@ export function loadPreset(preset: ScenarioPreset): GameState {
   }
 
   // Set life totals
-  if (preset.setup.life?.player_a !== undefined) {
+  if (preset.setup.life?.player_a !== undefined && state.players.player_a) {
     state.players.player_a.life = preset.setup.life.player_a;
   }
-  if (preset.setup.life?.player_b !== undefined) {
+  if (preset.setup.life?.player_b !== undefined && state.players.player_b) {
     state.players.player_b.life = preset.setup.life.player_b;
   }
 

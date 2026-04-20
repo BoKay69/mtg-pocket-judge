@@ -46,7 +46,7 @@ export default function HomePage() {
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.2 }}
           >
-            {activeTab === "simulator" && <StackSimulator />}
+            {activeTab === "simulator" && <StackSimulator format={format} />}
 
             {activeTab === "glossary" && (
               <>
