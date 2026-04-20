@@ -1,10 +1,10 @@
-# MTG: Pocket Judge ⚖
+# MTG: Pocket Judge 
 
 > Settle rules disputes at the table. Visual stack resolution, keyword glossary, card search with official rulings, and format-aware legality checking for Magic: The Gathering.
 
 ## Features
 
-### ⚡ Stack Visualizer
+###  Stack Visualizer
 Pre-built scenarios walking through common stack interactions step-by-step:
 - Counterspell wars
 - Combat tricks with pump spells and removal
@@ -13,10 +13,10 @@ Pre-built scenarios walking through common stack interactions step-by-step:
 - Protection vs. board wipes (D.E.B.T.)
 - Anthem + removal timing
 
-### 🔧 Custom Stack Builder
+###  Custom Stack Builder
 Build your own stack scenarios with Scryfall autocomplete. Add spells and abilities, assign owners and targets, then step through LIFO resolution visually.
 
-### 📖 Keyword Glossary
+###  Keyword Glossary
 Searchable dictionary of every major keyword and rules concept, organized by category:
 - **Evergreen** — Deathtouch, Flying, Trample, Ward, etc.
 - **Spell Types** — Instant, Sorcery, Enchantment, Artifact
@@ -27,7 +27,7 @@ Searchable dictionary of every major keyword and rules concept, organized by cat
 
 Each entry includes: rule text, practical example, pro tip, and cross-references.
 
-### 🔍 Card Search & Rulings
+###  Card Search & Rulings
 Scryfall-powered card search with:
 - Autocomplete card names
 - Oracle text display
