@@ -157,13 +157,19 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
           </AnimatePresence>
         </div>
         <div className="px-4 pb-3">
-          <div className="text-sm font-display font-bold text-mtg-text mb-1">{step.item.name}</div>
-          <div className="text-xs text-mtg-text-dim mb-2">{pLabel(gs, step.item.controller)}{step.item.targets.length > 0 && ` \u00B7 Target: ${step.item.targets.map((t) => t.name).join(", ")}`}</div>
-          <div className="space-y-1 max-h-28 overflow-y-auto">
-            {step.logEntries.map((e, i) => (
-              <div key={i} className="text-[12px] leading-relaxed" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>
-                {LOG_ICONS[e.type] ? `${LOG_ICONS[e.type]} ` : ""}{e.text}
-                {e.detail && <div className="text-[11px] text-mtg-text-muted mt-0.5 pl-3 border-l border-mtg-border">{e.detail}</div>}
+          <div className="text-base font-display font-bold text-mtg-text mb-1">{step.item.name}</div>
+          <div className="text-sm text-mtg-text-dim mb-2">
+            {pLabel(gs, step.item.controller)}
+            {step.item.targets.length > 0 && ` \u2192 Targeting: ${step.item.targets.map((t) => t.name).join(", ")}`}
+          </div>
+          <div className="space-y-2 max-h-36 overflow-y-auto">
+            {step.logEntries.filter((e) => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
+              <div key={i} className="flex items-start gap-2">
+                {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0 mt-0.5">{LOG_ICONS[e.type]}</span>}
+                <div>
+                  <div className="text-sm font-display" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{e.text}</div>
+                  {e.detail && <div className="text-xs text-mtg-text-dim mt-0.5 leading-relaxed whitespace-pre-wrap">{e.detail}</div>}
+                </div>
               </div>
             ))}
           </div>
@@ -386,9 +392,33 @@ function LessonBanner({ preset }: { preset: ScenarioPreset }) {
 // ─── Action Log ──────────────────────────────────────────────────────────────
 function ActionLog({ log, logEndRef }: { log: LogEntry[]; logEndRef: React.RefObject<HTMLDivElement | null> }) {
   if (log.length === 0) return null;
+
+  // Filter out noisy priority_receive entries to keep the log clean
+  const filtered = log.filter((e) => e.type !== "priority_receive");
+
   return (
-    <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1">
-      {log.map((e) => <div key={e.id} className={cn("px-2.5 py-1 rounded text-[11px] leading-relaxed", e.highlight ? "bg-mtg-surface" : "")}><span className="font-display" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{LOG_ICONS[e.type] ? `${LOG_ICONS[e.type]} ` : ""}{e.text}</span>{e.detail && <span className="text-mtg-text-muted ml-1">&mdash; {e.detail}</span>}</div>)}
+    <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1">
+      {filtered.map((e) => (
+        <div key={e.id} className={cn(
+          "px-3 py-2 rounded-lg",
+          e.highlight ? "bg-mtg-surface border border-mtg-border/50" : "",
+          e.type === "priority_pass" ? "opacity-50" : ""
+        )}>
+          <div className="flex items-start gap-2">
+            {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0 mt-0.5">{LOG_ICONS[e.type]}</span>}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-display font-semibold" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>
+                {e.text}
+              </div>
+              {e.detail && (
+                <div className="text-xs text-mtg-text-dim mt-1 leading-relaxed whitespace-pre-wrap">
+                  {e.detail}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
       <div ref={logEndRef} />
     </div>
   );

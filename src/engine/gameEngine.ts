@@ -178,11 +178,10 @@ function handleCastSpell(
     isActivatedAbility
       ? `${playerLabel} activates ${spell.name}`
       : `${playerLabel} casts ${spell.name}`,
-    spell.targets.length > 0
-      ? `Targeting: ${spell.targets.map((t) => t.name).join(", ")}`
-      : spell.effect
-        ? spell.effect.slice(0, 120) + (spell.effect.length > 120 ? "..." : "")
-        : undefined,
+    [
+      spell.targets.length > 0 ? `Targeting: ${spell.targets.map((t) => t.name).join(", ")}` : null,
+      spell.effect ? spell.effect.slice(0, 200) + (spell.effect.length > 200 ? "..." : "") : null,
+    ].filter(Boolean).join("\n") || undefined,
     true
   );
 
