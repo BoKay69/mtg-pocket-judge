@@ -27,10 +27,10 @@ export interface GameConfig {
 }
 
 const PLAYER_LABELS: Record<PlayerId, string> = {
-  player_a: "Player A",
-  player_b: "Player B",
-  player_c: "Player C",
-  player_d: "Player D",
+  player_a: "Player 1",
+  player_b: "Player 2",
+  player_c: "Player 3",
+  player_d: "Player 4",
 };
 
 export function createInitialState(

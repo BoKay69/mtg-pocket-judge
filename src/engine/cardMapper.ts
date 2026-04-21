@@ -147,12 +147,12 @@ export function cardToStackItem(
     effect: card.oracle_text || undefined,
     isManaAbility: false,
     hasSplitSecond: hasSplitSecond(card),
+    imageUri: card.image_uris?.normal || card.image_uris?.small,
   };
 }
 
 /**
  * Get a human-readable summary of what the card does.
- * Used for display in the stack and action log.
  */
 export function getCardSummary(card: ScryfallCard): {
   type: string;
@@ -173,4 +173,88 @@ export function getCardSummary(card: ScryfallCard): {
   const isPerm = isPermanentType(card.type_line);
 
   return { type, stats, keywords, abilities, isInstant, isPermanent: isPerm };
+}
+
+// ─── Target Detection ────────────────────────────────────────────────────────
+
+export interface TargetRequirement {
+  required: boolean;
+  description: string; // e.g. "target creature", "target player", "target artifact or enchantment"
+  type: "creature" | "player" | "permanent" | "spell" | "any";
+}
+
+/**
+ * Analyze a card's oracle text to determine if it requires a target.
+ * Returns null if no target is needed, or a TargetRequirement describing what's needed.
+ */
+export function detectTargetRequirement(card: ScryfallCard): TargetRequirement | null {
+  const text = (card.oracle_text || "").toLowerCase();
+
+  // No oracle text = no target (vanilla creatures, lands)
+  if (!text) return null;
+
+  // Permanent spells generally don't target (exceptions handled below)
+  if (isPermanentType(card.type_line)) {
+    // Auras target on cast
+    if (text.includes("enchant creature")) {
+      return { required: true, description: "Enchant creature", type: "creature" };
+    }
+    if (text.includes("enchant permanent")) {
+      return { required: true, description: "Enchant permanent", type: "permanent" };
+    }
+    if (text.includes("enchant artifact")) {
+      return { required: true, description: "Enchant artifact", type: "permanent" };
+    }
+    if (text.includes("enchant player")) {
+      return { required: true, description: "Enchant player", type: "player" };
+    }
+    // ETB targets are handled by triggers, not the spell itself
+    return null;
+  }
+
+  // Instants and sorceries — check for "target" keyword
+  if (!text.includes("target")) {
+    return null; // No targeting (board wipes, draw spells, etc.)
+  }
+
+  // Parse what kind of target
+  if (text.includes("target creature or player") || text.includes("any target")) {
+    return { required: true, description: "Target creature or player", type: "any" };
+  }
+  if (text.includes("target creature or planeswalker")) {
+    return { required: true, description: "Target creature or planeswalker", type: "creature" };
+  }
+  if (text.includes("target creature")) {
+    return { required: true, description: "Target creature", type: "creature" };
+  }
+  if (text.includes("target player") || text.includes("target opponent")) {
+    return { required: true, description: "Target player", type: "player" };
+  }
+  if (text.includes("target artifact or enchantment")) {
+    return { required: true, description: "Target artifact or enchantment", type: "permanent" };
+  }
+  if (text.includes("target artifact")) {
+    return { required: true, description: "Target artifact", type: "permanent" };
+  }
+  if (text.includes("target enchantment")) {
+    return { required: true, description: "Target enchantment", type: "permanent" };
+  }
+  if (text.includes("target permanent")) {
+    return { required: true, description: "Target permanent", type: "permanent" };
+  }
+  if (text.includes("target spell")) {
+    return { required: true, description: "Target spell", type: "spell" };
+  }
+  if (text.includes("target instant") || text.includes("target instant or sorcery")) {
+    return { required: true, description: "Target instant or sorcery spell", type: "spell" };
+  }
+  if (text.includes("target land")) {
+    return { required: true, description: "Target land", type: "permanent" };
+  }
+  if (text.includes("target planeswalker")) {
+    return { required: true, description: "Target planeswalker", type: "permanent" };
+  }
+
+  // Generic "target" found but couldn't parse specifics
+  return { required: true, description: "Target (see card text)", type: "any" };
 }

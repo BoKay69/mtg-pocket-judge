@@ -190,6 +190,7 @@ export interface EngineStackItem {
   isManaAbility: boolean;
   hasSplitSecond: boolean;
   timestamp: number; // For ordering
+  imageUri?: string; // Scryfall card image
 }
 
 export interface StackTarget {
