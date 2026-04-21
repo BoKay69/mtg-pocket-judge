@@ -376,3 +376,102 @@ export function loadPreset(preset: ScenarioPreset, format?: string): GameState {
 
   return state;
 }
+
+// ─── Async Image Loader for Presets ──────────────────────────────────────────
+
+/**
+ * After loading a preset, fetch card images from Scryfall for all
+ * cards on the battlefield and stack. Returns an updated GameState
+ * with imageUri populated on permanents, stack items, and triggers.
+ */
+export async function hydratePresetImages(state: GameState): Promise<GameState> {
+  // Collect all unique card names from battlefield and stack
+  const cardNames = new Set<string>();
+
+  for (const perm of state.battlefield) {
+    cardNames.add(perm.name);
+  }
+  for (const item of state.stack) {
+    // For stack items, extract the base card name (remove " trigger" suffix)
+    const name = item.triggerSource || item.name.replace(/ trigger$/i, "");
+    cardNames.add(name);
+  }
+
+  if (cardNames.size === 0) return state;
+
+  // Fetch all cards from Scryfall (with rate limiting)
+  const imageMap = new Map<string, string>();
+
+  for (const name of cardNames) {
+    try {
+      // Small delay to respect Scryfall rate limits
+      await new Promise((r) => setTimeout(r, 80));
+      const res = await fetch(
+        `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`
+      );
+      if (res.ok) {
+        const card = await res.json();
+        const imageUri = card.image_uris?.normal || card.image_uris?.small;
+        if (imageUri) {
+          imageMap.set(name, imageUri);
+        }
+        // Also store oracle text for better trigger parsing
+        if (card.oracle_text) {
+          // Re-parse triggers with real oracle text for battlefield permanents
+          for (const perm of state.battlefield) {
+            if (perm.name === name && !perm.oracleText) {
+              perm.oracleText = card.oracle_text;
+              // Re-parse triggers from real oracle text
+              const { parseTriggersFromOracle } = await import("@/engine/triggers");
+              perm.triggers = parseTriggersFromOracle(
+                card.oracle_text,
+                perm.id,
+                perm.name,
+                perm.controller
+              );
+              // Extract keywords
+              if (card.keywords) {
+                const kwMap: Record<string, string> = {
+                  deathtouch: "deathtouch", defender: "defender", "double strike": "double_strike",
+                  "first strike": "first_strike", flash: "flash", flying: "flying", haste: "haste",
+                  hexproof: "hexproof", indestructible: "indestructible", lifelink: "lifelink",
+                  menace: "menace", reach: "reach", trample: "trample", vigilance: "vigilance",
+                };
+                for (const kw of card.keywords) {
+                  const mapped = kwMap[kw.toLowerCase()];
+                  if (mapped && !perm.keywords.includes(mapped as any)) {
+                    perm.keywords.push(mapped as any);
+                  }
+                }
+              }
+              // Set P/T from Scryfall if not already set
+              if (card.power && perm.basePower === undefined) {
+                perm.basePower = parseInt(card.power) || 0;
+                perm.baseToughness = parseInt(card.toughness) || 0;
+                perm.currentPower = perm.basePower;
+                perm.currentToughness = perm.baseToughness;
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Skip failed fetches — card will just show placeholder
+    }
+  }
+
+  // Patch images into battlefield permanents
+  for (const perm of state.battlefield) {
+    const img = imageMap.get(perm.name);
+    if (img) perm.imageUri = img;
+  }
+
+  // Patch images into stack items
+  for (const item of state.stack) {
+    const baseName = item.triggerSource || item.name.replace(/ trigger$/i, "");
+    const img = imageMap.get(baseName);
+    if (img) item.imageUri = img;
+  }
+
+  return state;
+}

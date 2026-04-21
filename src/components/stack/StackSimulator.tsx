@@ -7,7 +7,7 @@ import type { GameState, PlayerId, EngineStackItem, Permanent, LogEntry } from "
 import type { ActivatedAbilityInfo } from "@/engine";
 import { STEP_LABELS } from "@/engine/types";
 import { generateId } from "@/engine/utils";
-import { SCENARIO_PRESETS, loadPreset } from "@/data/presets";
+import { SCENARIO_PRESETS, loadPreset, hydratePresetImages } from "@/data/presets";
 import type { ScenarioPreset } from "@/data/presets";
 import { Button, Card, Badge, SectionLabel } from "@/components/ui";
 import { useCardAutocomplete, useCardFetch } from "@/hooks";
@@ -404,13 +404,31 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   const [gs, setGs] = useState<GameState>(() => { const c = format === "commander"; return createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 }); });
   const [preset, setPreset] = useState<ScenarioPreset | null>(null);
   const [resSteps, setResSteps] = useState<ResolutionStep[] | null>(null);
+  const [loadingImages, setLoadingImages] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { const c = format === "commander"; setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 })); setPreset(null); }, [format]);
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [gs.actionLog.length]);
 
   const dispatch = useCallback((a: Parameters<typeof processAction>[1]) => { setGs((p) => processAction(p, a)); }, []);
-  const handleReset = () => { if (preset) setGs(loadPreset(preset, format)); else { const c = format === "commander"; setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 })); } };
+
+  const loadPresetWithImages = useCallback(async (p: ScenarioPreset) => {
+    const state = loadPreset(p, format);
+    setGs(state);
+    setPreset(p);
+    setLoadingImages(true);
+    try {
+      const hydrated = await hydratePresetImages(state);
+      // Deep copy to ensure React detects changes to nested stack/battlefield arrays
+      setGs(JSON.parse(JSON.stringify(hydrated)));
+    } catch { /* images failed, state still works without them */ }
+    setLoadingImages(false);
+  }, [format]);
+
+  const handleReset = useCallback(() => {
+    if (preset) { loadPresetWithImages(preset); }
+    else { const c = format === "commander"; setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 })); }
+  }, [preset, format, loadPresetWithImages]);
   const handleResolve = () => { if (gs.stack.length === 0) return; const { steps, finalState } = buildResolutionSteps(gs); setResSteps(steps); setGs(finalState); };
 
   return (
@@ -420,11 +438,11 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
         <div><div className="text-xs text-mtg-text-muted uppercase tracking-wider font-bold">Turn {gs.turnNumber} &middot; {pLabel(gs, gs.activePlayer)}&apos;s Turn</div><div className="text-sm font-display font-bold text-mtg-gold mt-0.5">{STEP_LABELS[gs.currentStep]}</div></div>
         <div className="flex gap-1.5"><Button variant="secondary" size="sm" onClick={() => dispatch({ type: "undo" })} disabled={!canUndo()}>Undo</Button><Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button></div>
       </div>
-      <ScenarioDropdown onSelect={(p) => { setPreset(p); setGs(loadPreset(p, format)); }} />
+      <ScenarioDropdown onSelect={(p) => { loadPresetWithImages(p); }} />
       {preset && <LessonBanner preset={preset} />}
       <PlayerGrid gs={gs} />
       <div><SectionLabel>Battlefield</SectionLabel>{gs.playerOrder.map((pid) => <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} />)}<AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} /></div>
-      <div><SectionLabel>The Stack ({gs.stack.length} item{gs.stack.length !== 1 && "s"})</SectionLabel><VisualCardStack stack={gs.stack} gs={gs} /></div>
+      <div><SectionLabel>The Stack ({gs.stack.length} item{gs.stack.length !== 1 && "s"}){loadingImages && <span className="text-mtg-text-muted ml-2 text-[10px] animate-pulse">Loading card images...</span>}</SectionLabel><VisualCardStack stack={gs.stack} gs={gs} /></div>
       <div className="space-y-2">
         <AddSpellOrAbilityForm gs={gs} onCast={(item) => dispatch({ type: "cast_spell", spell: item })} />
         {gs.stack.length > 0 && <Button onClick={handleResolve} className="w-full" variant="primary">{"\u25B6"} Resolve Stack ({gs.stack.length} item{gs.stack.length !== 1 ? "s" : ""})</Button>}
