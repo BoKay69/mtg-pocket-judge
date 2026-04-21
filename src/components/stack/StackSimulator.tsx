@@ -72,7 +72,7 @@ function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents:
       <div className="flex flex-wrap gap-2">
         {pp.map((perm) => (
           <div key={perm.id} className={cn("relative group", perm.tapped && "opacity-60")}>
-            {perm.imageUri ? <img src={perm.imageUri} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} loading="lazy" />
+            {perm.imageUri ? <img src={perm.imageUri} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               : <div className={cn("w-20 h-28 rounded-lg border bg-mtg-card flex flex-col items-center justify-center p-1", perm.tapped ? "border-mtg-border" : "border-mtg-border-light")}><span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>{perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}</div>}
             {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
             {perm.keywords.length > 0 && <div className="absolute bottom-0 left-0 right-0 bg-black/80 rounded-b-lg px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><div className="flex gap-0.5 flex-wrap justify-center">{perm.keywords.map((kw) => <span key={kw} className="text-[7px] text-mtg-gold capitalize">{kw.replace("_"," ")}</span>)}</div></div>}
@@ -88,21 +88,33 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
   if (stack.length === 0) return <div className="text-center py-6 text-mtg-text-muted text-xs border border-dashed border-mtg-border rounded-xl">Stack is empty &mdash; add a spell or ability to begin</div>;
   const rev = [...stack].reverse();
   return (
-    <div className="relative flex flex-col items-center py-4">
-      <div className="relative" style={{ height: Math.min(rev.length * 55 + 140, 420) }}>
-        {rev.map((item, i) => (
-          <motion.div key={item.id} initial={{ opacity: 0, y: -20, scale: 0.9 }} animate={{ opacity: 1, y: i * 55, scale: 1 }} transition={{ delay: i * 0.08, type: "spring", stiffness: 300, damping: 25 }} className="absolute left-1/2" style={{ transform: "translateX(-50%)", zIndex: rev.length - i }}>
-            <div className={cn("relative", i === 0 && "animate-pulse-subtle")}>
-              <img src={item.imageUri || CARD_BACK} alt={item.name} className={cn("w-28 rounded-lg shadow-lg border-2", i === 0 ? "border-mtg-gold shadow-mtg-gold/30" : "border-mtg-border/50")} loading="lazy" />
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent rounded-b-lg px-1.5 py-1">
-                <div className="text-[9px] font-display font-bold text-white leading-tight truncate">{item.name}</div>
-                <div className="text-[8px] text-white/70">{pLabel(gs, item.controller)}{item.type === "triggered_ability" ? " \u00B7 Trigger" : item.type === "activated_ability" ? " \u00B7 Ability" : ""}</div>
-              </div>
-              {i === 0 && <div className="absolute -top-2 -right-2 z-10"><Badge>Next</Badge></div>}
+    <div className="flex flex-col items-center py-4">
+      {rev.map((item, i) => (
+        <motion.div
+          key={item.id}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: i * 0.08 }}
+          style={{ marginTop: i === 0 ? 0 : -80, zIndex: rev.length - i }}
+          className="relative"
+        >
+          <div className={cn("relative", i === 0 && "animate-pulse-subtle")}>
+            <img
+              src={item.imageUri || CARD_BACK}
+              alt={item.name}
+              width={112}
+              height={156}
+              className={cn("rounded-lg shadow-lg border-2 block", i === 0 ? "border-mtg-gold shadow-mtg-gold/30" : "border-mtg-border/50")}
+              onError={(e) => { (e.target as HTMLImageElement).src = CARD_BACK; }}
+            />
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent rounded-b-lg px-1.5 py-1">
+              <div className="text-[9px] font-display font-bold text-white leading-tight truncate">{item.name}</div>
+              <div className="text-[8px] text-white/70">{pLabel(gs, item.controller)}{item.type === "triggered_ability" ? " \u00B7 Trigger" : item.type === "activated_ability" ? " \u00B7 Ability" : ""}</div>
             </div>
-          </motion.div>
-        ))}
-      </div>
+            {i === 0 && <div className="absolute -top-2 -right-2 z-10"><Badge>Next</Badge></div>}
+          </div>
+        </motion.div>
+      ))}
     </div>
   );
 }
@@ -171,7 +183,7 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
 function CardPreview({ card, targetReq }: { card: ScryfallCard; targetReq: ReturnType<typeof detectTargetRequirement> }) {
   return (
     <div className="flex gap-2.5 p-2 bg-mtg-surface rounded-lg border border-mtg-border">
-      {card.image_uris?.small && <img src={card.image_uris.small} alt={card.name} className="w-16 rounded flex-shrink-0" loading="lazy" />}
+      {card.image_uris?.small && <img src={card.image_uris.small} alt={card.name} className="w-16 rounded flex-shrink-0" />}
       <div className="min-w-0 flex-1">
         <div className="text-xs font-display font-bold text-mtg-text">{card.name}</div>
         <div className="text-[10px] text-mtg-text-muted">{card.type_line}</div>

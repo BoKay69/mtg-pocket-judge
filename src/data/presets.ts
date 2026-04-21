@@ -21,6 +21,11 @@ export interface ScenarioPreset {
 
 // ─── Helper to build permanents concisely ────────────────────────────────────
 
+// Scryfall direct image URL — no API call needed, redirects to CDN
+function scryfallImage(cardName: string): string {
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}&format=image&version=normal`;
+}
+
 function creature(
   name: string,
   controller: PlayerId,
@@ -48,6 +53,7 @@ function creature(
     summoningSick: false,
     counters: {},
     oracleText: opts?.oracleText,
+    imageUri: scryfallImage(name),
   };
 }
 
@@ -71,6 +77,7 @@ function enchantment(
     summoningSick: false,
     counters: {},
     oracleText: opts?.oracleText,
+    imageUri: scryfallImage(name),
   };
 }
 
@@ -92,6 +99,7 @@ function spell(
     effect,
     isManaAbility: false,
     hasSplitSecond: false,
+    imageUri: scryfallImage(name),
   };
 }
 
@@ -110,6 +118,7 @@ function trigger(
     effect,
     isManaAbility: false,
     hasSplitSecond: false,
+    imageUri: scryfallImage(source),
   };
 }
 
@@ -292,6 +301,7 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
           effect: "Destroy target artifact or enchantment.",
           isManaAbility: false,
           hasSplitSecond: true,
+          imageUri: scryfallImage("Krosan Grip"),
         },
       ],
     },
