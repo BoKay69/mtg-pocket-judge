@@ -548,6 +548,10 @@ function placeTriggers(
   );
 
   for (const trigger of triggers) {
+    // Find the source permanent to get its image
+    const sourcePerm = state.battlefield.find((p) => p.id === trigger.sourceId)
+      || state.battlefield.find((p) => p.name === trigger.sourceName);
+
     const stackItem: EngineStackItem = {
       id: generateId(),
       type: "triggered_ability",
@@ -560,6 +564,7 @@ function placeTriggers(
       isManaAbility: false,
       hasSplitSecond: false,
       timestamp: state.stepCount,
+      imageUri: sourcePerm?.imageUri,
     };
 
     state.stack.push(stackItem);

@@ -124,7 +124,7 @@ export function cardToPermanent(
     summoningSick: true,
     counters: {},
     oracleText: card.oracle_text,
-    imageUri: card.image_uris?.small,
+    imageUri: card.image_uris?.normal || card.image_uris?.small,
   };
 }
 
