@@ -170,11 +170,19 @@ function handleCastSpell(
 
   // Log it
   const playerLabel = state.players[spell.controller]!.label;
-  addLog(state, "cast_spell", spell.controller,
-    `${playerLabel} casts ${spell.name}`,
+  const isActivatedAbility = spell.type === "activated_ability";
+  const isTriggeredAbility = spell.type === "triggered_ability";
+  const isActualSpell = spell.type === "spell";
+
+  addLog(state, isActivatedAbility ? "activate_ability" : "cast_spell", spell.controller,
+    isActivatedAbility
+      ? `${playerLabel} activates ${spell.name}`
+      : `${playerLabel} casts ${spell.name}`,
     spell.targets.length > 0
       ? `Targeting: ${spell.targets.map((t) => t.name).join(", ")}`
-      : undefined,
+      : spell.effect
+        ? spell.effect.slice(0, 120) + (spell.effect.length > 120 ? "..." : "")
+        : undefined,
     true
   );
 
@@ -188,22 +196,25 @@ function handleCastSpell(
     );
   }
 
-  // Create cast event for trigger checking
-  const castEvent: GameEvent = {
-    id: generateId(),
-    type: "cast_spell",
-    timestamp: state.stepCount,
-    sourceId: stackItem.id,
-    sourceName: spell.name,
-    sourceController: spell.controller,
-    data: { spellType: spell.spellType },
-  };
-  state.eventLog.push(castEvent);
+  // Only fire cast_spell events for ACTUAL spells — not activated or triggered abilities
+  // Rhystic Study triggers on "whenever an opponent casts a spell" — activated abilities are NOT spells
+  if (isActualSpell) {
+    const castEvent: GameEvent = {
+      id: generateId(),
+      type: "cast_spell",
+      timestamp: state.stepCount,
+      sourceId: stackItem.id,
+      sourceName: spell.name,
+      sourceController: spell.controller,
+      data: { spellType: spell.spellType },
+    };
+    state.eventLog.push(castEvent);
 
-  // Check for triggers from the cast event
-  const triggers = detectTriggers(state, castEvent);
-  if (triggers.length > 0) {
-    placeTriggers(state, triggers, castEvent);
+    // Check for triggers from the cast event
+    const triggers = detectTriggers(state, castEvent);
+    if (triggers.length > 0) {
+      placeTriggers(state, triggers, castEvent);
+    }
   }
 
   // Reset priority — both players get a chance to respond
@@ -344,11 +355,33 @@ function resolveTopOfStack(state: GameState): GameState {
     );
   }
 
-  // Log resolution
+  // Log resolution with descriptive text
   const playerLabel = state.players[item.controller]!.label;
+  const targetNames = item.targets.map((t) => t.name).join(", ");
+
+  // Build a human-readable description of what happens
+  let description = "";
+  if (item.type === "spell" && isPermamentSpell(item.spellType)) {
+    description = `${item.name} enters the battlefield under ${playerLabel}'s control.`;
+  } else if (item.type === "triggered_ability") {
+    description = item.effect || `${item.triggerSource || item.name}'s triggered ability resolves.`;
+  } else if (item.type === "activated_ability") {
+    description = item.effect || `${item.name} resolves.`;
+  } else if (item.effect) {
+    // Use the oracle text / effect for spells
+    const effectPreview = item.effect.length > 200 ? item.effect.slice(0, 200) + "..." : item.effect;
+    description = effectPreview;
+  } else {
+    description = `${item.name} resolves.`;
+  }
+
+  if (targetNames && !description.toLowerCase().includes(targetNames.toLowerCase())) {
+    description = `Targeting ${targetNames}: ${description}`;
+  }
+
   addLog(state, "resolve", item.controller,
     `${item.name} resolves`,
-    item.effect || `${item.name} has its effect.`,
+    description,
     true
   );
 

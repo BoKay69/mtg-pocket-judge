@@ -258,3 +258,129 @@ export function detectTargetRequirement(card: ScryfallCard): TargetRequirement |
   // Generic "target" found but couldn't parse specifics
   return { required: true, description: "Target (see card text)", type: "any" };
 }
+
+// ─── Activated Ability Parsing ───────────────────────────────────────────────
+
+export interface ActivatedAbilityInfo {
+  cost: string; // e.g. "{T}", "{2}{B}, Sacrifice a creature"
+  effect: string; // e.g. "Draw a card"
+  fullText: string; // The complete line
+  requiresTarget: boolean;
+  targetDescription?: string;
+}
+
+/**
+ * Parse activated abilities from oracle text.
+ * Activated abilities have the pattern: "Cost: Effect"
+ * Excludes keyword abilities, reminder text, and triggered abilities.
+ */
+export function parseActivatedAbilities(card: ScryfallCard): ActivatedAbilityInfo[] {
+  const text = card.oracle_text || "";
+  const lines = text.split("\n");
+  const abilities: ActivatedAbilityInfo[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Skip empty lines
+    if (!trimmed) continue;
+
+    // Skip lines that start with trigger words (these are triggered abilities, not activated)
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith("when") || lower.startsWith("at the") || lower.startsWith("if ")) continue;
+
+    // Skip pure keyword lines (flying, deathtouch, etc.)
+    const knownKeywords = Object.keys(SCRYFALL_KEYWORD_MAP);
+    if (knownKeywords.some((kw) => lower === kw || lower === kw + ".")) continue;
+
+    // Skip lines that are just keyword lists like "Flying, vigilance, trample"
+    const parts = lower.split(",").map((p) => p.trim().replace(".", ""));
+    if (parts.every((p) => knownKeywords.includes(p))) continue;
+
+    // Look for the colon that separates cost from effect
+    // Must have a colon that's NOT inside reminder text (parentheses)
+    // And NOT a mana ability indicator like "Add {G}" without a meaningful colon
+    const colonIdx = findAbilityColon(trimmed);
+    if (colonIdx === -1) continue;
+
+    const cost = trimmed.slice(0, colonIdx).trim();
+    const effect = trimmed.slice(colonIdx + 1).trim();
+
+    // Validate this looks like an activated ability
+    // Cost should contain mana symbols {X}, tap symbol {T}, or words like "Sacrifice", "Pay", "Discard", "Exile", "Remove"
+    const costLower = cost.toLowerCase();
+    const looksLikeAbility =
+      cost.includes("{") ||
+      costLower.includes("sacrifice") ||
+      costLower.includes("pay") ||
+      costLower.includes("discard") ||
+      costLower.includes("exile") ||
+      costLower.includes("remove") ||
+      costLower.includes("tap") ||
+      costLower.includes("untap");
+
+    if (!looksLikeAbility) continue;
+
+    // Skip mana abilities (they don't use the stack)
+    const effectLower = effect.toLowerCase();
+    if (effectLower.startsWith("add {") || effectLower.startsWith("add one mana")) continue;
+
+    // Check if target is required
+    const requiresTarget = effectLower.includes("target");
+    let targetDescription: string | undefined;
+    if (requiresTarget) {
+      // Extract target type
+      const targetMatch = effectLower.match(/target\s+([\w\s]+?)(?:\.|,|$)/);
+      if (targetMatch) {
+        targetDescription = "Target " + targetMatch[1].trim();
+      } else {
+        targetDescription = "Target (see ability text)";
+      }
+    }
+
+    abilities.push({
+      cost,
+      effect,
+      fullText: trimmed,
+      requiresTarget,
+      targetDescription,
+    });
+  }
+
+  return abilities;
+}
+
+/**
+ * Find the colon that separates cost from effect in an activated ability.
+ * Skips colons inside reminder text (parentheses).
+ */
+function findAbilityColon(text: string): number {
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "(") depth++;
+    if (text[i] === ")") depth--;
+    if (text[i] === ":" && depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Convert a parsed activated ability into a stack item.
+ */
+export function abilityToStackItem(
+  card: ScryfallCard,
+  ability: ActivatedAbilityInfo,
+  controller: PlayerId,
+  targets: EngineStackItem["targets"] = []
+): Omit<EngineStackItem, "id" | "timestamp"> {
+  return {
+    type: "activated_ability",
+    name: `${card.name}: ${ability.cost}`,
+    controller,
+    targets,
+    effect: ability.effect,
+    isManaAbility: false,
+    hasSplitSecond: false,
+    imageUri: card.image_uris?.normal || card.image_uris?.small,
+  };
+}

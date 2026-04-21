@@ -64,7 +64,7 @@ function triggerMatchesEvent(
     case "enters_battlefield":
       return checkETBCondition(trigger, event);
     case "cast_spell":
-      return checkCastCondition(trigger, event);
+      return checkCastCondition(trigger, event, source, state);
     case "deals_damage":
       return checkDamageCondition(trigger, event, source);
     case "life_gained":
@@ -77,7 +77,7 @@ function triggerMatchesEvent(
     case "end_of_phase":
       return checkPhaseCondition(trigger, event, source);
     default:
-      return true;
+      return false; // Unknown event type — don't trigger
   }
 }
 
@@ -101,15 +101,41 @@ function checkETBCondition(
 
 function checkCastCondition(
   trigger: TriggerDefinition,
-  event: GameEvent
+  event: GameEvent,
+  source: Permanent,
+  state: GameState
 ): boolean {
-  if (trigger.condition) {
-    const cond = trigger.condition.toLowerCase();
-    if (cond.includes("instant") || cond.includes("sorcery")) {
-      const spellType = event.data?.spellType as string;
-      return cond.includes(spellType?.toLowerCase() || "");
+  if (!trigger.condition) return true;
+  const cond = trigger.condition.toLowerCase();
+
+  // "Whenever an opponent casts a spell" — must be a different player
+  if (cond.includes("opponent")) {
+    if (event.sourceController === source.controller) return false;
+  }
+
+  // "Whenever you cast" — must be the controller
+  if (cond.includes("you cast") || cond.includes("whenever you cast")) {
+    if (event.sourceController !== source.controller) return false;
+  }
+
+  // Check spell type restrictions: "whenever a player casts an instant or sorcery"
+  if (cond.includes("instant") || cond.includes("sorcery")) {
+    const spellType = (event.data?.spellType as string)?.toLowerCase() || "";
+    if (cond.includes("instant or sorcery") || cond.includes("instant and sorcery")) {
+      if (spellType !== "instant" && spellType !== "sorcery") return false;
+    } else if (cond.includes("instant") && !cond.includes("sorcery")) {
+      if (spellType !== "instant") return false;
+    } else if (cond.includes("sorcery") && !cond.includes("instant")) {
+      if (spellType !== "sorcery") return false;
     }
   }
+
+  // "Whenever a player casts a creature spell"
+  if (cond.includes("creature spell")) {
+    const spellType = (event.data?.spellType as string)?.toLowerCase() || "";
+    if (spellType !== "creature") return false;
+  }
+
   return true;
 }
 
