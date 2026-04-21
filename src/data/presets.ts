@@ -166,17 +166,20 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
   {
     id: "etb_removal",
     name: "ETB + Removal",
-    description: "Killing a creature in response to its enter-the-battlefield trigger.",
+    description: "Snapcaster Mage has resolved and entered the battlefield. Its ETB trigger is on the stack. Player 2 responds with Fatal Push — does the trigger still resolve?",
     category: "Triggered Abilities",
     lesson:
-      "Triggered abilities exist independently on the stack. Destroying the source does NOT counter the trigger. The ETB still resolves.",
+      "Triggered abilities exist independently on the stack. Destroying the source does NOT counter the trigger. Even though Snapcaster Mage dies, its ETB ability still resolves and grants flashback.",
     setup: {
       activePlayer: "player_a",
       step: "main",
-      battlefield: [],
+      battlefield: [
+        creature("Snapcaster Mage", "player_a", 2, 1, {
+          oracleText: "Flash\nWhen Snapcaster Mage enters the battlefield, target instant or sorcery card in your graveyard gains flashback until end of turn.",
+        }),
+      ],
       stackSequence: [
-        spell("Snapcaster Mage", "player_a", "creature", "", "Flash. When Snapcaster Mage enters the battlefield, target instant or sorcery in your graveyard gains flashback."),
-        trigger("Snapcaster ETB", "player_a", "Snapcaster Mage", "Target instant or sorcery in your graveyard gains flashback until end of turn."),
+        trigger("Snapcaster ETB", "player_a", "Snapcaster Mage", "Target instant or sorcery card in your graveyard gains flashback until end of turn."),
         spell("Fatal Push", "player_b", "instant", "Snapcaster Mage", "Destroy target creature with mana value 2 or less."),
       ],
     },

@@ -9,6 +9,8 @@ import { STEP_LABELS } from "@/engine/types";
 import { generateId } from "@/engine/utils";
 import { SCENARIO_PRESETS, loadPreset, hydratePresetImages } from "@/data/presets";
 import type { ScenarioPreset } from "@/data/presets";
+import { getMetaDecks } from "@/data/metaDecks";
+import type { MetaDeck } from "@/data/metaDecks";
 import { Button, Card, Badge, SectionLabel } from "@/components/ui";
 import { useCardAutocomplete, useCardFetch } from "@/hooks";
 import { cn } from "@/lib/utils";
@@ -38,6 +40,51 @@ function ScenarioDropdown({ onSelect }: { onSelect: (p: ScenarioPreset) => void 
                   <p className="text-[11px] text-mtg-text-dim mt-0.5">{p.description}</p>
                 </Card>
               </button>))}
+          </div>
+        </motion.div>
+      )}</AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Meta Decks Dropdown ─────────────────────────────────────────────────────
+function MetaDecksDropdown({ format, onAddCard }: { format: string; onAddCard: (cardName: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const decks = getMetaDecks(format);
+
+  if (decks.length === 0) return null;
+
+  const MANA_EMOJI: Record<string, string> = { W: "\u2600", U: "\u{1F4A7}", B: "\u{1F480}", R: "\u{1F525}", G: "\u{1F33F}" };
+  const TIER_LABEL: Record<number, string> = { 1: "Tier 1", 2: "Tier 2", 3: "Tier 3" };
+  const TIER_COLOR: Record<number, string> = { 1: "#22c55e", 2: "#f59e0b", 3: "#6b7280" };
+
+  return (
+    <div className="mb-3">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-mtg-border bg-mtg-card text-sm font-display font-semibold text-mtg-text-dim hover:border-mtg-border-light transition-all">
+        <span>{"\u{1F3C6}"} Meta Decks ({format})</span>
+        <span className={cn("transition-transform text-xs", open && "rotate-180")}>{"\u25BE"}</span>
+      </button>
+      <AnimatePresence>{open && (
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+          <div className="mt-1.5 space-y-2 max-h-80 overflow-y-auto">
+            {decks.map((deck) => (
+              <Card key={deck.name} className="!p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-display font-bold text-mtg-text">{deck.name}</span>
+                  <Badge color={TIER_COLOR[deck.tier]}>{TIER_LABEL[deck.tier]}</Badge>
+                  <span className="text-xs">{deck.colors.map((c) => MANA_EMOJI[c] || c).join("")}</span>
+                </div>
+                <p className="text-xs text-mtg-text-dim mb-2">{deck.description}</p>
+                <div className="flex flex-wrap gap-1">
+                  {deck.keyCards.map((card) => (
+                    <button key={card} onClick={() => onAddCard(card)}
+                      className="px-2 py-0.5 text-[10px] font-display text-mtg-gold border border-mtg-gold/30 rounded hover:bg-mtg-gold/10 transition-colors">
+                      + {card}
+                    </button>
+                  ))}
+                </div>
+              </Card>
+            ))}
           </div>
         </motion.div>
       )}</AnimatePresence>
@@ -185,17 +232,37 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
   );
 }
 
-// ─── Card Preview ────────────────────────────────────────────────────────────
-function CardPreview({ card, targetReq }: { card: ScryfallCard; targetReq: ReturnType<typeof detectTargetRequirement> }) {
+// ─── Card Preview with ban check ─────────────────────────────────────────────
+function CardPreview({ card, targetReq, format }: { card: ScryfallCard; targetReq: ReturnType<typeof detectTargetRequirement>; format?: string }) {
+  const legality = format && card.legalities ? (card.legalities as Record<string, string>)[format] : null;
+  const isBanned = legality === "banned";
+  const isNotLegal = legality === "not_legal";
+  const isRestricted = legality === "restricted";
+
   return (
-    <div className="flex gap-2.5 p-2 bg-mtg-surface rounded-lg border border-mtg-border">
+    <div className={cn("flex gap-2.5 p-2 bg-mtg-surface rounded-lg border", isBanned ? "border-red-500/60" : "border-mtg-border")}>
       {card.image_uris?.small && <img src={card.image_uris.small} alt={card.name} className="w-16 rounded flex-shrink-0" />}
       <div className="min-w-0 flex-1">
         <div className="text-xs font-display font-bold text-mtg-text">{card.name}</div>
         <div className="text-[10px] text-mtg-text-muted">{card.type_line}</div>
         {card.power && <div className="text-[10px] text-mtg-text-dim">{card.power}/{card.toughness}</div>}
+        {isBanned && (
+          <div className="mt-1 px-2 py-1 bg-red-500/15 border border-red-500/30 rounded text-xs text-red-400 font-display font-bold">
+            {"\u26D4"} BANNED in {format}
+          </div>
+        )}
+        {isRestricted && (
+          <div className="mt-1 px-2 py-1 bg-amber-500/15 border border-amber-500/30 rounded text-xs text-amber-400 font-display font-bold">
+            {"\u26A0"} RESTRICTED in {format} (1 copy max)
+          </div>
+        )}
+        {isNotLegal && !isBanned && (
+          <div className="mt-1 px-2 py-1 bg-gray-500/15 border border-gray-500/30 rounded text-[10px] text-gray-400 font-display">
+            Not legal in {format}
+          </div>
+        )}
         {targetReq && <div className="mt-1 text-[10px] text-red-400 font-bold">{"\u{1F3AF}"} Requires: {targetReq.description}</div>}
-        {!targetReq && card.oracle_text && <div className="text-[10px] text-mtg-text-dim mt-1 line-clamp-2">{card.oracle_text}</div>}
+        {!targetReq && !isBanned && card.oracle_text && <div className="text-[10px] text-mtg-text-dim mt-1 line-clamp-2">{card.oracle_text}</div>}
       </div>
     </div>
   );
@@ -295,7 +362,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
         </div>
 
         {/* Card preview */}
-        {card && <CardPreview card={card} targetReq={mode === "spell" ? targetReq : null} />}
+        {card && <CardPreview card={card} targetReq={mode === "spell" ? targetReq : null} format={gs.format} />}
 
         {/* Ability picker for activated abilities */}
         {mode === "ability" && card && abilities.length > 1 && !selectedAbility && (
@@ -366,7 +433,7 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
             </motion.div>
           )}</AnimatePresence>
         </div>
-        {card && <CardPreview card={card} targetReq={null} />}
+        {card && <CardPreview card={card} targetReq={null} format={gs.format} />}
         <select value={controller} onChange={(e) => setController(e.target.value as PlayerId)} className="w-full px-2.5 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-xs outline-none">
           {gs.playerOrder.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
         </select>
@@ -481,6 +548,16 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
         <div className="flex gap-1.5"><Button variant="secondary" size="sm" onClick={() => dispatch({ type: "undo" })} disabled={!canUndo()}>Undo</Button><Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button></div>
       </div>
       <ScenarioDropdown onSelect={(p) => { loadPresetWithImages(p); }} />
+      <MetaDecksDropdown format={format} onAddCard={async (cardName) => {
+        try {
+          const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}`);
+          if (res.ok) {
+            const card = await res.json();
+            const { cardToPermanent: ctp } = await import("@/engine");
+            dispatch({ type: "add_permanent", permanent: ctp(card, gs.playerOrder[0]) });
+          }
+        } catch { /* failed to fetch card */ }
+      }} />
       {preset && <LessonBanner preset={preset} />}
       <PlayerGrid gs={gs} />
       <div><SectionLabel>Battlefield</SectionLabel>{gs.playerOrder.map((pid) => <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} />)}<AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} /></div>
