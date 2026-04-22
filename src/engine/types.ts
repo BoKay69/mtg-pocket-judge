@@ -120,7 +120,9 @@ export type TriggerEvent =
   | "counter_added"
   | "tapped"
   | "untapped"
-  | "targeted";
+  | "targeted"
+  | "draw_card"
+  | "discard";
 
 export interface TriggerDefinition {
   id: string;
@@ -304,4 +306,5 @@ export type UserAction =
   | { type: "remove_permanent"; permanentId: string }
   | { type: "set_life"; player: PlayerId; amount: number }
   | { type: "deal_damage"; targetId: string; amount: number; sourceId?: string }
+  | { type: "draw_card"; player: PlayerId; count?: number }
   | { type: "undo" };

@@ -47,12 +47,32 @@ function ScenarioDropdown({ onSelect }: { onSelect: (p: ScenarioPreset) => void 
   );
 }
 
-// ─── Meta Decks Dropdown ─────────────────────────────────────────────────────
+// ─── Meta Decks Dropdown (live from MTGGoldfish + static fallback) ────────────
 function MetaDecksDropdown({ format, onAddCard }: { format: string; onAddCard: (cardName: string) => void }) {
   const [open, setOpen] = useState(false);
-  const decks = getMetaDecks(format);
+  const [liveDecks, setLiveDecks] = useState<{ name: string; metaShare: string; url: string }[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [useLive, setUseLive] = useState(true);
 
-  if (decks.length === 0) return null;
+  const staticDecks = getMetaDecks(format);
+
+  // Fetch live metagame data when dropdown opens
+  useEffect(() => {
+    if (!open || liveDecks !== null || !useLive) return;
+    setLoading(true);
+    fetch(`/api/metagame?format=${format}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.decks && data.decks.length > 0) {
+          setLiveDecks(data.decks);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [open, format, liveDecks, useLive]);
+
+  // Reset live data when format changes
+  useEffect(() => { setLiveDecks(null); }, [format]);
 
   const MANA_EMOJI: Record<string, string> = { W: "\u2600", U: "\u{1F4A7}", B: "\u{1F480}", R: "\u{1F525}", G: "\u{1F33F}" };
   const TIER_LABEL: Record<number, string> = { 1: "Tier 1", 2: "Tier 2", 3: "Tier 3" };
@@ -67,7 +87,49 @@ function MetaDecksDropdown({ format, onAddCard }: { format: string; onAddCard: (
       <AnimatePresence>{open && (
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
           <div className="mt-1.5 space-y-2 max-h-80 overflow-y-auto">
-            {decks.map((deck) => (
+
+            {/* Toggle between live and curated */}
+            <div className="flex gap-2 items-center px-1">
+              <button onClick={() => setUseLive(true)} className={cn("text-xs font-display", useLive ? "text-mtg-gold font-bold" : "text-mtg-text-muted")}>
+                Live (MTGGoldfish)
+              </button>
+              <span className="text-mtg-text-muted text-xs">|</span>
+              <button onClick={() => setUseLive(false)} className={cn("text-xs font-display", !useLive ? "text-mtg-gold font-bold" : "text-mtg-text-muted")}>
+                Curated
+              </button>
+              {loading && <span className="text-[10px] text-mtg-text-muted animate-pulse ml-auto">Fetching live data...</span>}
+            </div>
+
+            {/* Live decks from MTGGoldfish */}
+            {useLive && liveDecks && liveDecks.length > 0 && (
+              <>
+                <div className="text-[10px] text-green-400 px-1">Live metagame from MTGGoldfish</div>
+                {liveDecks.map((deck: any, i: number) => (
+                  <Card key={deck.name + i} className="!p-2.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-display font-bold text-mtg-text">{deck.name}</span>
+                      {deck.metaShare && <Badge color={i < 3 ? "#22c55e" : i < 8 ? "#f59e0b" : "#6b7280"}>{deck.metaShare}</Badge>}
+                    </div>
+                    {deck.topCards && deck.topCards.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {deck.topCards.map((card: string) => (
+                          <button key={card} onClick={() => onAddCard(card)}
+                            className="px-2 py-0.5 text-[10px] font-display text-mtg-gold border border-mtg-gold/30 rounded hover:bg-mtg-gold/10 transition-colors">
+                            + {card}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                ))}
+              </>
+            )}
+            {useLive && !liveDecks && !loading && (
+              <div className="text-xs text-mtg-text-muted p-3 text-center">No live data available. Try the curated list.</div>
+            )}
+
+            {/* Static curated decks with quick-add */}
+            {!useLive && staticDecks.map((deck) => (
               <Card key={deck.name} className="!p-3">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-display font-bold text-mtg-text">{deck.name}</span>
@@ -85,6 +147,9 @@ function MetaDecksDropdown({ format, onAddCard }: { format: string; onAddCard: (
                 </div>
               </Card>
             ))}
+            {!useLive && staticDecks.length === 0 && (
+              <div className="text-xs text-mtg-text-muted p-3 text-center">No curated decks for this format yet.</div>
+            )}
           </div>
         </motion.div>
       )}</AnimatePresence>
@@ -122,6 +187,7 @@ function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents:
             {perm.imageUri ? <img src={perm.imageUri} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               : <div className={cn("w-20 h-28 rounded-lg border bg-mtg-card flex flex-col items-center justify-center p-1", perm.tapped ? "border-mtg-border" : "border-mtg-border-light")}><span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>{perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}</div>}
             {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
+            {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition || "any"}`).join("\n")}>{perm.triggers.length}</div>}
             {perm.keywords.length > 0 && <div className="absolute bottom-0 left-0 right-0 bg-black/80 rounded-b-lg px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><div className="flex gap-0.5 flex-wrap justify-center">{perm.keywords.map((kw) => <span key={kw} className="text-[7px] text-mtg-gold capitalize">{kw.replace("_"," ")}</span>)}</div></div>}
           </div>
         ))}
@@ -170,63 +236,101 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
 interface ResolutionStep { item: EngineStackItem; logEntries: LogEntry[]; status: "resolved" | "fizzled"; }
 
 function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onClose: () => void; gs: GameState }) {
+  const [phase, setPhase] = useState<"confirm" | "resolving">("confirm");
   const [cur, setCur] = useState(0);
   const [auto, setAuto] = useState(false);
 
   useEffect(() => {
-    if (auto && cur < steps.length - 1) { const t = setTimeout(() => setCur((p) => p + 1), 2000); return () => clearTimeout(t); }
+    if (auto && phase === "resolving" && cur < steps.length - 1) { const t = setTimeout(() => setCur((p) => p + 1), 2000); return () => clearTimeout(t); }
     if (auto && cur >= steps.length - 1) setAuto(false);
-  }, [auto, cur, steps.length]);
+  }, [auto, cur, steps.length, phase]);
 
-  const step = steps[cur];
-  if (!step) return null;
+  const step = phase === "resolving" ? steps[cur] : null;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)" }}>
       <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} transition={{ duration: 0.15 }} className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-mtg-bg border border-mtg-border rounded-2xl shadow-2xl">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-mtg-border">
-          <div className="text-sm font-display font-bold text-mtg-gold">Resolving Stack</div>
-          <div className="flex items-center gap-2"><span className="text-xs text-mtg-text-muted">{cur + 1} / {steps.length}</span><button onClick={onClose} className="text-mtg-text-muted hover:text-mtg-text text-lg">&times;</button></div>
-        </div>
-        <div className="relative flex flex-col items-center py-6 px-4 min-h-[260px]">
-          {steps.slice(cur + 1).reverse().map((s, i) => (
-            <div key={s.item.id} className="absolute" style={{ top: 20 + i * 3, zIndex: i, opacity: Math.max(0.1, 0.3 - i * 0.08) }}>
-              <img src={s.item.imageUri || CARD_BACK} alt="" className="w-32 rounded-lg border border-mtg-border/30" />
+
+        {/* ─── CONFIRM PHASE: Show full stack ─── */}
+        {phase === "confirm" && (
+          <>
+            <div className="px-4 py-3 border-b border-mtg-border">
+              <div className="text-sm font-display font-bold text-mtg-gold">Stack to Resolve ({steps.length} items)</div>
+              <div className="text-xs text-mtg-text-muted mt-0.5">Items resolve top to bottom (Last In, First Out)</div>
             </div>
-          ))}
-          <AnimatePresence mode="popLayout">
-            <motion.div key={step.item.id + cur} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 120 }} transition={{ duration: 0.15, ease: "easeOut" }} className="relative z-20">
-              <img src={step.item.imageUri || CARD_BACK} alt={step.item.name} className={cn("w-40 rounded-xl shadow-2xl border-2", step.status === "fizzled" ? "border-red-500 opacity-60" : "border-green-500")} />
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-30">
-                <Badge color={step.status === "fizzled" ? "#dc2626" : "#22c55e"}>{step.status === "fizzled" ? "Fizzled" : "Resolved"}</Badge>
-              </div>
-            </motion.div>
-          </AnimatePresence>
-        </div>
-        <div className="px-4 pb-3">
-          <div className="text-base font-display font-bold text-mtg-text mb-1">{step.item.name}</div>
-          <div className="text-sm text-mtg-text-dim mb-2">
-            {pLabel(gs, step.item.controller)}
-            {step.item.targets.length > 0 && ` \u2192 Targeting: ${step.item.targets.map((t) => t.name).join(", ")}`}
-          </div>
-          <div className="space-y-2 max-h-36 overflow-y-auto">
-            {step.logEntries.filter((e) => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
-              <div key={i} className="flex items-start gap-2">
-                {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0 mt-0.5">{LOG_ICONS[e.type]}</span>}
-                <div>
-                  <div className="text-sm font-display" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{e.text}</div>
-                  {e.detail && <div className="text-xs text-mtg-text-dim mt-0.5 leading-relaxed whitespace-pre-wrap">{e.detail}</div>}
+            <div className="px-4 py-3 space-y-2 max-h-[60vh] overflow-y-auto">
+              {steps.map((s, i) => (
+                <div key={s.item.id + i} className="flex items-center gap-3">
+                  <div className="text-xs text-mtg-text-muted font-bold w-5 text-right flex-shrink-0">{i + 1}</div>
+                  <img src={s.item.imageUri || CARD_BACK} alt={s.item.name} width={48} height={67} className="rounded border border-mtg-border flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-display font-bold text-mtg-text">{s.item.name}</div>
+                    <div className="text-xs text-mtg-text-dim">
+                      {pLabel(gs, s.item.controller)}
+                      {s.item.type === "triggered_ability" && " \u00B7 Trigger"}
+                      {s.item.type === "activated_ability" && " \u00B7 Ability"}
+                      {s.item.targets.length > 0 && ` \u2192 ${s.item.targets.map((t) => t.name).join(", ")}`}
+                    </div>
+                    {s.item.effect && <div className="text-[11px] text-mtg-text-muted mt-0.5 line-clamp-2">{s.item.effect}</div>}
+                  </div>
                 </div>
+              ))}
+            </div>
+            <div className="flex gap-2 px-4 py-3 border-t border-mtg-border">
+              <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+              <Button className="flex-1" onClick={() => setPhase("resolving")}>{"\u25B6"} Confirm &amp; Resolve</Button>
+            </div>
+          </>
+        )}
+
+        {/* ─── RESOLVING PHASE: Animated step-through ─── */}
+        {phase === "resolving" && step && (
+          <>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-mtg-border">
+              <div className="text-sm font-display font-bold text-mtg-gold">Resolving Stack</div>
+              <div className="flex items-center gap-2"><span className="text-xs text-mtg-text-muted">{cur + 1} / {steps.length}</span><button onClick={onClose} className="text-mtg-text-muted hover:text-mtg-text text-lg">&times;</button></div>
+            </div>
+            <div className="relative flex flex-col items-center py-6 px-4 min-h-[260px]">
+              {steps.slice(cur + 1).reverse().map((s, i) => (
+                <div key={s.item.id} className="absolute" style={{ top: 20 + i * 3, zIndex: i, opacity: Math.max(0.1, 0.3 - i * 0.08) }}>
+                  <img src={s.item.imageUri || CARD_BACK} alt="" width={128} height={179} className="rounded-lg border border-mtg-border/30" />
+                </div>
+              ))}
+              <AnimatePresence mode="popLayout">
+                <motion.div key={step.item.id + cur} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 120 }} transition={{ duration: 0.15, ease: "easeOut" }} className="relative z-20">
+                  <img src={step.item.imageUri || CARD_BACK} alt={step.item.name} width={160} height={223} className={cn("rounded-xl shadow-2xl border-2", step.status === "fizzled" ? "border-red-500 opacity-60" : "border-green-500")} />
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-30">
+                    <Badge color={step.status === "fizzled" ? "#dc2626" : "#22c55e"}>{step.status === "fizzled" ? "Fizzled" : "Resolved"}</Badge>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+            <div className="px-4 pb-3">
+              <div className="text-base font-display font-bold text-mtg-text mb-1">{step.item.name}</div>
+              <div className="text-sm text-mtg-text-dim mb-2">
+                {pLabel(gs, step.item.controller)}
+                {step.item.targets.length > 0 && ` \u2192 Targeting: ${step.item.targets.map((t) => t.name).join(", ")}`}
               </div>
-            ))}
-          </div>
-        </div>
-        <div className="flex justify-center gap-1.5 py-2">{steps.map((_, i) => <div key={i} className={cn("w-2 h-2 rounded-full transition-all", i === cur ? "bg-mtg-gold scale-125" : i < cur ? "bg-green-500" : "bg-mtg-border")} />)}</div>
-        <div className="flex gap-2 px-4 pb-4">
-          <Button variant="secondary" size="sm" onClick={() => setCur((p) => Math.max(0, p - 1))} disabled={cur === 0}>&larr; Prev</Button>
-          <Button className="flex-1" size="sm" onClick={() => { if (cur >= steps.length - 1) onClose(); else setCur((p) => p + 1); }}>{cur >= steps.length - 1 ? "Done" : "Next \u2192"}</Button>
-          <Button variant="ghost" size="sm" onClick={() => setAuto(!auto)}>{auto ? "Pause" : "Auto"}</Button>
-        </div>
+              <div className="space-y-2 max-h-36 overflow-y-auto">
+                {step.logEntries.filter((e) => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0 mt-0.5">{LOG_ICONS[e.type]}</span>}
+                    <div>
+                      <div className="text-sm font-display" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{e.text}</div>
+                      {e.detail && <div className="text-xs text-mtg-text-dim mt-0.5 leading-relaxed whitespace-pre-wrap">{e.detail}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-center gap-1.5 py-2">{steps.map((_, i) => <div key={i} className={cn("w-2 h-2 rounded-full transition-all", i === cur ? "bg-mtg-gold scale-125" : i < cur ? "bg-green-500" : "bg-mtg-border")} />)}</div>
+            <div className="flex gap-2 px-4 pb-4">
+              <Button variant="secondary" size="sm" onClick={() => setCur((p) => Math.max(0, p - 1))} disabled={cur === 0}>&larr; Prev</Button>
+              <Button className="flex-1" size="sm" onClick={() => { if (cur >= steps.length - 1) onClose(); else setCur((p) => p + 1); }}>{cur >= steps.length - 1 ? "Done" : "Next \u2192"}</Button>
+              <Button variant="ghost" size="sm" onClick={() => setAuto(!auto)}>{auto ? "Pause" : "Auto"}</Button>
+            </div>
+          </>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -564,8 +668,20 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
       <div><SectionLabel>The Stack ({gs.stack.length} item{gs.stack.length !== 1 && "s"}){loadingImages && <span className="text-mtg-text-muted ml-2 text-[10px] animate-pulse">Loading card images...</span>}</SectionLabel><VisualCardStack stack={gs.stack} gs={gs} /></div>
       <div className="space-y-2">
         <AddSpellOrAbilityForm gs={gs} onCast={(item) => dispatch({ type: "cast_spell", spell: item })} />
-        {gs.stack.length > 0 && <Button onClick={handleResolve} className="w-full" variant="primary">{"\u25B6"} Resolve Stack ({gs.stack.length} item{gs.stack.length !== 1 ? "s" : ""})</Button>}
-        {gs.stack.length === 0 && <Button variant="ghost" onClick={() => dispatch({ type: "advance_phase" })} className="w-full" size="sm">Next Phase &rarr;</Button>}
+        {gs.stack.length > 0 && <Button onClick={handleResolve} className="w-full" variant="primary">{"\u25B6"} Review &amp; Resolve Stack ({gs.stack.length} item{gs.stack.length !== 1 ? "s" : ""})</Button>}
+        {gs.stack.length === 0 && (
+          <div className="space-y-2">
+            <Button variant="ghost" onClick={() => dispatch({ type: "advance_phase" })} className="w-full" size="sm">Next Phase &rarr;</Button>
+            <div className="flex gap-1.5 flex-wrap">
+              {gs.playerOrder.map((pid) => (
+                <button key={pid} onClick={() => dispatch({ type: "draw_card", player: pid })}
+                  className="flex-1 px-2 py-1.5 text-[11px] font-display text-mtg-text-dim border border-mtg-border rounded-lg hover:border-mtg-gold/50 hover:text-mtg-gold transition-colors">
+                  {pLabel(gs, pid)} draws
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {gs.actionLog.length > 0 && <div><SectionLabel>Log</SectionLabel><Card className="!p-2"><ActionLog log={gs.actionLog} logEndRef={logEndRef} /></Card></div>}
       {gs.playerOrder.some((pid) => (gs.graveyards[pid]?.length || 0) > 0) && (

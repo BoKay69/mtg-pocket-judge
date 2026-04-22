@@ -21,9 +21,14 @@ export function detectTriggers(
 ): TriggerDefinition[] {
   const matched: TriggerDefinition[] = [];
 
+  console.log("[DETECT TRIGGERS] Event:", event.type, "| Permanents on battlefield:", state.battlefield.length);
+
   for (const permanent of state.battlefield) {
+    console.log("[DETECT TRIGGERS] Checking", permanent.name, "| triggers:", permanent.triggers.length, permanent.triggers.map(t => t.event));
     for (const trigger of permanent.triggers) {
-      if (triggerMatchesEvent(trigger, event, permanent, state)) {
+      const matches = triggerMatchesEvent(trigger, event, permanent, state);
+      console.log("[DETECT TRIGGERS]  ->", trigger.event, "vs", event.type, "| condition:", trigger.condition, "| matches:", matches);
+      if (matches) {
         matched.push(trigger);
       }
     }
@@ -76,6 +81,11 @@ function triggerMatchesEvent(
     case "beginning_of_phase":
     case "end_of_phase":
       return checkPhaseCondition(trigger, event, source);
+    case "draw_card":
+      return checkDrawCondition(trigger, event, source);
+    case "dies":
+    case "leaves_battlefield":
+      return true; // Already checked source above
     default:
       return false; // Unknown event type — don't trigger
   }
@@ -161,6 +171,25 @@ function checkLifeCondition(
 ): boolean {
   // "Whenever you gain life" — controller must be the one gaining
   return event.sourceController === source.controller;
+}
+
+function checkDrawCondition(
+  trigger: TriggerDefinition,
+  event: GameEvent,
+  source: Permanent
+): boolean {
+  const cond = (trigger.condition || "").toLowerCase();
+
+  // "Whenever an opponent draws a card" — must be opponent drawing
+  if (cond.includes("opponent")) {
+    return event.sourceController !== source.controller;
+  }
+  // "Whenever you draw a card" — must be controller
+  if (cond.includes("you draw")) {
+    return event.sourceController === source.controller;
+  }
+  // "Whenever a player draws a card" — anyone
+  return true;
 }
 
 function checkCombatCondition(
@@ -325,6 +354,21 @@ export function parseTriggersFromOracle(
         id: generateId(),
         event: "attacks",
         condition: extractCondition(line, "attacks"),
+        effect,
+        sourceId: permanentId,
+        sourceName: permanentName,
+        controller,
+      });
+    }
+
+    // "Whenever an opponent draws a card" / "Whenever a player draws"
+    if (lower.includes("whenever") && lower.includes("draw")) {
+      const effect = extractEffect(line);
+      console.log("[TRIGGER PARSER] Found draw trigger on", permanentName, ":", line);
+      triggers.push({
+        id: generateId(),
+        event: "draw_card",
+        condition: extractCondition(line, "draw"),
         effect,
         sourceId: permanentId,
         sourceName: permanentName,

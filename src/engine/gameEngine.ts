@@ -137,6 +137,8 @@ export function processAction(
       return handleSetLife(state, action.player, action.amount);
     case "deal_damage":
       return handleDealDamage(state, action.targetId, action.amount, action.sourceId);
+    case "draw_card":
+      return handleDrawCard(state, action.player, action.count || 1);
     case "undo":
       return undo() ?? state;
     default:
@@ -662,6 +664,26 @@ function advanceStep(state: GameState): GameState {
     }
   }
 
+  // Draw step: active player draws a card (fires draw_card triggers)
+  if (state.currentStep === "draw") {
+    const drawEvent: GameEvent = {
+      id: generateId(),
+      type: "draw_card",
+      timestamp: state.stepCount,
+      sourceController: state.activePlayer,
+      sourceName: state.players[state.activePlayer]!.label,
+    };
+    state.eventLog.push(drawEvent);
+    addLog(state, "game_event", state.activePlayer,
+      `${state.players[state.activePlayer]!.label} draws for turn`
+    );
+
+    const drawTriggers = detectTriggers(state, drawEvent);
+    if (drawTriggers.length > 0) {
+      placeTriggers(state, drawTriggers, drawEvent);
+    }
+  }
+
   // Reset priority for new step
   resetPriority(state);
   state.priority.priorityHolder = state.activePlayer;
@@ -831,6 +853,43 @@ function handleDealDamage(
 
     // Check SBAs (might kill the creature)
     checkStateBasedActions(state);
+  }
+
+  return state;
+}
+
+// ─── Draw Card ───────────────────────────────────────────────────────────────
+
+function handleDrawCard(
+  state: GameState,
+  player: PlayerId,
+  count: number
+): GameState {
+  const playerObj = state.players[player]!;
+  console.log("[DRAW CARD] Player:", playerObj.label, "| Count:", count, "| Battlefield size:", state.battlefield.length);
+
+  for (let i = 0; i < count; i++) {
+    addLog(state, "game_event", player,
+      `${playerObj.label} draws a card`,
+      undefined,
+      true
+    );
+
+    // Fire draw_card event — this triggers Smothering Tithe, Consecrated Sphinx, etc.
+    const drawEvent: GameEvent = {
+      id: generateId(),
+      type: "draw_card",
+      timestamp: state.stepCount,
+      sourceController: player,
+      sourceName: playerObj.label,
+      data: { drawNumber: i + 1 },
+    };
+    state.eventLog.push(drawEvent);
+
+    const triggers = detectTriggers(state, drawEvent);
+    if (triggers.length > 0) {
+      placeTriggers(state, triggers, drawEvent);
+    }
   }
 
   return state;
