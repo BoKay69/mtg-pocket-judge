@@ -266,7 +266,10 @@ function handleActivateAbility(
   const playerLabel = state.players[ability.controller]!.label;
   addLog(state, "activate_ability", ability.controller,
     `${playerLabel} activates ${ability.name}`,
-    ability.effect || undefined,
+    [
+      ability.effect || null,
+      `Activated abilities are NOT spells — "whenever a spell is cast" effects (e.g. Rhystic Study) do not trigger.`,
+    ].filter(Boolean).join("\n\n"),
     true
   );
 
@@ -603,9 +606,18 @@ function placeTriggers(
 
     state.stack.push(stackItem);
 
+    const causeLabel =
+      event.type === "cast_spell" ? `caused by ${event.sourceName || "a spell"} being cast` :
+      event.type === "enters_battlefield" ? `caused by ${event.sourceName || "a permanent"} entering the battlefield` :
+      event.type === "dies" ? `caused by ${event.sourceName || "a permanent"} dying` :
+      event.type === "draw_card" ? `caused by a card being drawn` :
+      event.type === "deals_damage" ? `caused by damage being dealt` :
+      event.type === "beginning_of_phase" ? `triggered at beginning of step` :
+      `triggered by ${event.type}`;
+
     addLog(state, "trigger", trigger.controller,
       `${trigger.sourceName}'s ability triggers`,
-      `${trigger.condition || "Triggered"} → ${trigger.effect}`,
+      `Condition: ${trigger.condition || "Triggered"}\nEffect: ${trigger.effect}\nCause: ${causeLabel}`,
       true
     );
   }

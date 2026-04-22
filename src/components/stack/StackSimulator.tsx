@@ -124,8 +124,10 @@ function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents:
 
 function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameState }) {
   if (stack.length === 0) return <div className="text-center py-6 text-mtg-text-muted text-sm border border-dashed border-mtg-border rounded-xl">Stack is empty &mdash; add a spell or ability to begin</div>;
-  // Show top of stack (last item) first — this is LIFO order
+  // LIFO: last pushed = index (length-1) = top of stack = resolves first
+  // Display order: top of stack (resolves first) at the visual top
   const topFirst = [...stack].reverse();
+  const isLast = (i: number) => i === topFirst.length - 1;
   return (
     <div className="flex flex-col items-center py-4">
       {topFirst.map((item, i) => (
@@ -139,7 +141,18 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
                 {item.type === "triggered_ability" ? " \u00B7 Trigger" : item.type === "activated_ability" ? " \u00B7 Ability" : ""}
               </div>
             </div>
-            {i === 0 && <div className="absolute -top-2 -right-2 z-10"><Badge>Resolves First</Badge></div>}
+            {/* Top item = last cast = resolves FIRST */}
+            {i === 0 && (
+              <div className="absolute -top-2 -right-2 z-10">
+                <Badge color="#22c55e">&#8593; Resolves First</Badge>
+              </div>
+            )}
+            {/* Bottom item = first cast = resolves LAST */}
+            {stack.length > 1 && isLast(i) && (
+              <div className="absolute -bottom-2 -right-2 z-10" style={{ marginBottom: "-8px" }}>
+                <Badge color="#6b7280">&#8595; Resolves Last</Badge>
+              </div>
+            )}
           </div>
         </motion.div>
       ))}
@@ -277,11 +290,11 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
   const { card, loading: cardLoading, fetchCard, clearCard } = useCardFetch();
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  if (!showForm) return <button onClick={() => setShowForm(true)} className="w-full py-2.5 text-sm text-mtg-text-dim hover:text-mtg-gold border border-dashed border-mtg-border rounded-lg transition-colors font-display">+ Add Permanent to Battlefield</button>;
+  if (!showForm) return <button onClick={() => setShowForm(true)} className="w-full py-2.5 text-sm text-mtg-text-dim hover:text-mtg-gold border border-dashed border-mtg-border rounded-lg transition-colors font-display">+ Add Permanent Already in Play (Board Setup)</button>;
 
   return (
     <Card className="!p-3">
-      <SectionLabel>Add permanent (board setup)</SectionLabel>
+      <SectionLabel>Add permanent already in play (not being cast)</SectionLabel>
       <div className="space-y-2">
         <div className="relative">
           <input value={query} onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); clearCard(); }} onFocus={() => suggestions.length > 0 && setShowSuggestions(true)} placeholder="Search card name..." className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
@@ -526,64 +539,83 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
     <div className="space-y-3">
       <style>{`.animate-pulse-subtle { animation: ps 2s ease-in-out infinite; } @keyframes ps { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.15); } }`}</style>
 
-      {/* Header with phase selector */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs text-mtg-text-muted uppercase tracking-wider font-bold">
-            Turn {gs.turnNumber} &middot; {pLabel(gs, gs.activePlayer)}&apos;s Turn
-          </div>
-          <select value={gs.currentStep} onChange={(e) => handlePhaseChange(e.target.value as TurnStep)}
-            className="mt-1 px-2 py-1 bg-mtg-surface border border-mtg-gold/50 rounded-lg text-sm font-display font-bold text-mtg-gold outline-none cursor-pointer">
-            {PHASE_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
+      {/* Top toolbar — scenario picker + undo/reset */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-mtg-text-muted font-bold uppercase tracking-wider">
+          Turn {gs.turnNumber} &middot; {pLabel(gs, gs.activePlayer)}&apos;s Turn
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 flex-shrink-0">
           <Button variant="secondary" size="sm" onClick={() => dispatch({ type: "undo" })} disabled={!canUndo()}>Undo</Button>
           <Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button>
         </div>
       </div>
 
-      {/* Scenarios */}
+      {/* Scenario picker */}
       <ScenarioDropdown onSelect={(p) => { setPreset(p); setGs(loadPreset(p, format)); }} />
       {preset && <LessonBanner preset={preset} />}
+
+      {/* ── Step 1: Game Phase ────────────────────────────────────── */}
+      <Card className="!p-3">
+        <SectionLabel className="!mb-2">① Select Game Phase</SectionLabel>
+        <select
+          value={gs.currentStep}
+          onChange={(e) => handlePhaseChange(e.target.value as TurnStep)}
+          className="w-full px-3 py-2 bg-mtg-surface border border-mtg-gold/50 rounded-lg text-sm font-display font-bold text-mtg-gold outline-none cursor-pointer"
+        >
+          {PHASE_OPTIONS.map((p) => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
+        <div className="text-[10px] text-mtg-text-muted mt-1.5">
+          Select the phase <span className="text-mtg-text-dim font-semibold">before</span> setting up the board or building the stack
+        </div>
+      </Card>
 
       {/* Players */}
       <PlayerGrid gs={gs} />
 
-      {/* Board Setup */}
+      {/* ── Step 2: Board State ───────────────────────────────────── */}
       <div>
-        <SectionLabel>Battlefield (Board State)</SectionLabel>
-        {gs.playerOrder.map((pid) => <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} />)}
+        <SectionLabel>② Board State — Before Any Spell Is Cast</SectionLabel>
+        <p className="text-[11px] text-mtg-text-muted -mt-1.5 mb-2 leading-relaxed">
+          Add permanents that are already on the battlefield. These are <span className="text-mtg-text font-semibold">not being cast</span> — they are already in play when the scenario begins.
+        </p>
+        {gs.playerOrder.map((pid) => (
+          <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} />
+        ))}
         <AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} />
       </div>
 
-      {/* Stack */}
+      {/* ── Step 3: The Stack ─────────────────────────────────────── */}
       <div>
-        <SectionLabel>The Stack ({gs.stack.length} item{gs.stack.length !== 1 && "s"})</SectionLabel>
+        <SectionLabel>
+          ③ The Stack ({gs.stack.length} item{gs.stack.length !== 1 && "s"})
+        </SectionLabel>
+        <p className="text-[11px] text-mtg-text-muted -mt-1.5 mb-2 leading-relaxed">
+          Spells and abilities resolve <span className="text-mtg-text font-semibold">Last In, First Out</span> — the most recently cast item resolves first.
+        </p>
         <VisualCardStack stack={gs.stack} gs={gs} />
+        <div className="mt-2 space-y-2">
+          <AddSpellOrAbilityForm gs={gs} onCast={handleCast} />
+          {gs.stack.length > 0 && (
+            <Button onClick={handleResolve} className="w-full" variant="primary">
+              {"\u25B6"} Review &amp; Resolve Stack ({gs.stack.length} item{gs.stack.length !== 1 ? "s" : ""})
+            </Button>
+          )}
+          {gs.stack.length === 0 && (
+            <div className="flex gap-1.5 flex-wrap">
+              {gs.playerOrder.map((pid) => (
+                <button key={pid} onClick={() => dispatch({ type: "draw_card", player: pid })}
+                  className="flex-1 px-2 py-1.5 text-xs font-display text-mtg-text-dim border border-mtg-border rounded-lg hover:border-mtg-gold/50 hover:text-mtg-gold transition-colors min-w-[80px]">
+                  {pLabel(gs, pid)} draws
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Actions */}
-      <div className="space-y-2">
-        <AddSpellOrAbilityForm gs={gs} onCast={handleCast} />
-        {gs.stack.length > 0 && (
-          <Button onClick={handleResolve} className="w-full" variant="primary">
-            {"\u25B6"} Review &amp; Resolve Stack ({gs.stack.length} item{gs.stack.length !== 1 ? "s" : ""})
-          </Button>
-        )}
-        {gs.stack.length === 0 && (
-          <div className="flex gap-1.5 flex-wrap">
-            {gs.playerOrder.map((pid) => (
-              <button key={pid} onClick={() => dispatch({ type: "draw_card", player: pid })}
-                className="flex-1 px-2 py-1.5 text-xs font-display text-mtg-text-dim border border-mtg-border rounded-lg hover:border-mtg-gold/50 hover:text-mtg-gold transition-colors min-w-[80px]">
-                {pLabel(gs, pid)} draws
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Log */}
+      {/* Game Log */}
       {gs.actionLog.length > 0 && (
         <div>
           <SectionLabel>Game Log</SectionLabel>
@@ -597,7 +629,10 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           <SectionLabel>Graveyards</SectionLabel>
           <div className="grid grid-cols-2 gap-2">
             {gs.playerOrder.map(pid => (
-              <div key={pid} className="text-xs text-mtg-text-dim"><span className="font-bold">{pLabel(gs, pid)}:</span> {(gs.graveyards[pid]?.length || 0) === 0 ? "Empty" : gs.graveyards[pid]!.join(", ")}</div>
+              <div key={pid} className="text-xs text-mtg-text-dim">
+                <span className="font-bold">{pLabel(gs, pid)}:</span>{" "}
+                {(gs.graveyards[pid]?.length || 0) === 0 ? "Empty" : gs.graveyards[pid]!.join(", ")}
+              </div>
             ))}
           </div>
         </div>
