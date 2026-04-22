@@ -866,7 +866,6 @@ function handleDrawCard(
   count: number
 ): GameState {
   const playerObj = state.players[player]!;
-  console.log("[DRAW CARD] Player:", playerObj.label, "| Count:", count, "| Battlefield size:", state.battlefield.length);
 
   for (let i = 0; i < count; i++) {
     addLog(state, "game_event", player,

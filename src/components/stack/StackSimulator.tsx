@@ -3,32 +3,48 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createInitialState, processAction, canUndo, cardToPermanent, cardToStackItem, detectTargetRequirement, parseActivatedAbilities, abilityToStackItem } from "@/engine";
-import type { GameState, PlayerId, EngineStackItem, Permanent, LogEntry } from "@/engine/types";
-import type { ActivatedAbilityInfo } from "@/engine";
+import type { GameState, PlayerId, EngineStackItem, Permanent, LogEntry, TurnStep } from "@/engine/types";
 import { STEP_LABELS } from "@/engine/types";
 import { generateId } from "@/engine/utils";
 import { SCENARIO_PRESETS, loadPreset, hydratePresetImages } from "@/data/presets";
 import type { ScenarioPreset } from "@/data/presets";
 import { getMetaDecks } from "@/data/metaDecks";
-import type { MetaDeck } from "@/data/metaDecks";
+import type { ActivatedAbilityInfo } from "@/engine";
 import { Button, Card, Badge, SectionLabel } from "@/components/ui";
 import { useCardAutocomplete, useCardFetch } from "@/hooks";
 import { cn } from "@/lib/utils";
 import type { ScryfallCard } from "@/types";
 
-const SPELL_TYPE_COLORS: Record<string, string> = { instant: "#3b82f6", sorcery: "#8b5cf6", creature: "#22c55e", artifact: "#94a3b8", enchantment: "#c084fc", planeswalker: "#f97316", triggered_ability: "#f59e0b", activated_ability: "#ec4899" };
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 const LOG_COLORS: Record<string, string> = { cast_spell: "#3b82f6", activate_ability: "#ec4899", trigger: "#f59e0b", resolve: "#22c55e", counter: "#dc2626", fizzle: "#6b7280", priority_pass: "#6b7280", priority_receive: "#8b5cf6", phase_change: "#c9a961", state_based_action: "#dc2626", game_event: "#6b7280", explanation: "#c9a961" };
 const LOG_ICONS: Record<string, string> = { explanation: "\u{1F4A1}", trigger: "\u26A1", resolve: "\u2713", fizzle: "\u2717", state_based_action: "\u2620", phase_change: "\u23F5", cast_spell: "\u{1F0CF}", activate_ability: "\u2699" };
+
 function pLabel(s: GameState, p: PlayerId): string { return s.players[p]?.label || p; }
+
 const CARD_BACK = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 63 88" fill="none"><rect width="63" height="88" rx="4" fill="#1a1a2e"/><rect x="4" y="4" width="55" height="80" rx="2" stroke="#c9a961" stroke-width="1" fill="none"/><text x="31.5" y="48" text-anchor="middle" fill="#c9a961" font-size="24" font-family="serif">?</text></svg>');
 
+const PHASE_OPTIONS: { value: TurnStep; label: string }[] = [
+  { value: "upkeep", label: "Upkeep" },
+  { value: "draw", label: "Draw Step" },
+  { value: "main", label: "Main Phase 1" },
+  { value: "begin_combat", label: "Beginning of Combat" },
+  { value: "declare_attackers", label: "Declare Attackers" },
+  { value: "declare_blockers", label: "Declare Blockers" },
+  { value: "combat_damage", label: "Combat Damage" },
+  { value: "main_2", label: "Main Phase 2" },
+  { value: "end_step", label: "End Step" },
+];
+
 // ─── Scenario Dropdown ───────────────────────────────────────────────────────
+
 function ScenarioDropdown({ onSelect }: { onSelect: (p: ScenarioPreset) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="mb-3">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-mtg-border bg-mtg-card text-sm font-display font-semibold text-mtg-text-dim hover:border-mtg-border-light transition-all">
-        <span>{"\u{1F4DA}"} Example Scenarios</span><span className={cn("transition-transform text-xs", open && "rotate-180")}>{"\u25BE"}</span>
+        <span>{"\u{1F4DA}"} Example Scenarios</span>
+        <span className={cn("transition-transform text-xs", open && "rotate-180")}>{"\u25BE"}</span>
       </button>
       <AnimatePresence>{open && (
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
@@ -39,117 +55,8 @@ function ScenarioDropdown({ onSelect }: { onSelect: (p: ScenarioPreset) => void 
                   <div className="flex items-center gap-2"><span className="text-xs font-display font-bold text-mtg-text">{p.name}</span><Badge>{p.category}</Badge></div>
                   <p className="text-[11px] text-mtg-text-dim mt-0.5">{p.description}</p>
                 </Card>
-              </button>))}
-          </div>
-        </motion.div>
-      )}</AnimatePresence>
-    </div>
-  );
-}
-
-// ─── Meta Decks Dropdown (live from MTGGoldfish + static fallback) ────────────
-function MetaDecksDropdown({ format, onAddCard }: { format: string; onAddCard: (cardName: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [liveDecks, setLiveDecks] = useState<{ name: string; metaShare: string; url: string }[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [useLive, setUseLive] = useState(true);
-
-  const staticDecks = getMetaDecks(format);
-
-  // Fetch live metagame data when dropdown opens
-  useEffect(() => {
-    if (!open || liveDecks !== null || !useLive) return;
-    setLoading(true);
-    fetch(`/api/metagame?format=${format}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.decks && data.decks.length > 0) {
-          setLiveDecks(data.decks);
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [open, format, liveDecks, useLive]);
-
-  // Reset live data when format changes
-  useEffect(() => { setLiveDecks(null); }, [format]);
-
-  const MANA_EMOJI: Record<string, string> = { W: "\u2600", U: "\u{1F4A7}", B: "\u{1F480}", R: "\u{1F525}", G: "\u{1F33F}" };
-  const TIER_LABEL: Record<number, string> = { 1: "Tier 1", 2: "Tier 2", 3: "Tier 3" };
-  const TIER_COLOR: Record<number, string> = { 1: "#22c55e", 2: "#f59e0b", 3: "#6b7280" };
-
-  return (
-    <div className="mb-3">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-mtg-border bg-mtg-card text-sm font-display font-semibold text-mtg-text-dim hover:border-mtg-border-light transition-all">
-        <span>{"\u{1F3C6}"} Meta Decks ({format})</span>
-        <span className={cn("transition-transform text-xs", open && "rotate-180")}>{"\u25BE"}</span>
-      </button>
-      <AnimatePresence>{open && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-          <div className="mt-1.5 space-y-2 max-h-80 overflow-y-auto">
-
-            {/* Toggle between live and curated */}
-            <div className="flex gap-2 items-center px-1">
-              <button onClick={() => setUseLive(true)} className={cn("text-xs font-display", useLive ? "text-mtg-gold font-bold" : "text-mtg-text-muted")}>
-                Live (MTGGoldfish)
               </button>
-              <span className="text-mtg-text-muted text-xs">|</span>
-              <button onClick={() => setUseLive(false)} className={cn("text-xs font-display", !useLive ? "text-mtg-gold font-bold" : "text-mtg-text-muted")}>
-                Curated
-              </button>
-              {loading && <span className="text-[10px] text-mtg-text-muted animate-pulse ml-auto">Fetching live data...</span>}
-            </div>
-
-            {/* Live decks from MTGGoldfish */}
-            {useLive && liveDecks && liveDecks.length > 0 && (
-              <>
-                <div className="text-[10px] text-green-400 px-1">Live metagame from MTGGoldfish</div>
-                {liveDecks.map((deck: any, i: number) => (
-                  <Card key={deck.name + i} className="!p-2.5">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-display font-bold text-mtg-text">{deck.name}</span>
-                      {deck.metaShare && <Badge color={i < 3 ? "#22c55e" : i < 8 ? "#f59e0b" : "#6b7280"}>{deck.metaShare}</Badge>}
-                    </div>
-                    {deck.topCards && deck.topCards.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {deck.topCards.map((card: string) => (
-                          <button key={card} onClick={() => onAddCard(card)}
-                            className="px-2 py-0.5 text-[10px] font-display text-mtg-gold border border-mtg-gold/30 rounded hover:bg-mtg-gold/10 transition-colors">
-                            + {card}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </Card>
-                ))}
-              </>
-            )}
-            {useLive && !liveDecks && !loading && (
-              <div className="text-xs text-mtg-text-muted p-3 text-center">No live data available. Try the curated list.</div>
-            )}
-
-            {/* Static curated decks with quick-add */}
-            {!useLive && staticDecks.map((deck) => (
-              <Card key={deck.name} className="!p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-display font-bold text-mtg-text">{deck.name}</span>
-                  <Badge color={TIER_COLOR[deck.tier]}>{TIER_LABEL[deck.tier]}</Badge>
-                  <span className="text-xs">{deck.colors.map((c) => MANA_EMOJI[c] || c).join("")}</span>
-                </div>
-                <p className="text-xs text-mtg-text-dim mb-2">{deck.description}</p>
-                <div className="flex flex-wrap gap-1">
-                  {deck.keyCards.map((card) => (
-                    <button key={card} onClick={() => onAddCard(card)}
-                      className="px-2 py-0.5 text-[10px] font-display text-mtg-gold border border-mtg-gold/30 rounded hover:bg-mtg-gold/10 transition-colors">
-                      + {card}
-                    </button>
-                  ))}
-                </div>
-              </Card>
             ))}
-            {!useLive && staticDecks.length === 0 && (
-              <div className="text-xs text-mtg-text-muted p-3 text-center">No curated decks for this format yet.</div>
-            )}
           </div>
         </motion.div>
       )}</AnimatePresence>
@@ -157,24 +64,36 @@ function MetaDecksDropdown({ format, onAddCard }: { format: string; onAddCard: (
   );
 }
 
-// ─── Players ─────────────────────────────────────────────────────────────────
+// ─── Player Panel & Grid ─────────────────────────────────────────────────────
+
 function PlayerPanel({ player, isActive, hasPriority }: { player: { id: PlayerId; label: string; life: number }; isActive: boolean; hasPriority: boolean }) {
   return (
     <div className={cn("flex-1 p-2.5 rounded-xl border transition-all duration-300 min-w-0", hasPriority ? "border-mtg-gold bg-mtg-gold/10" : "border-mtg-border bg-mtg-card")}>
       <div className="flex items-center justify-between gap-1">
-        <div className="text-xs font-display font-bold text-mtg-text flex items-center gap-1 flex-wrap">{player.label}{isActive && <Badge>Turn</Badge>}{hasPriority && <Badge color="#22c55e">Priority</Badge>}</div>
+        <div className="text-xs font-display font-bold text-mtg-text flex items-center gap-1 flex-wrap">
+          {player.label}
+          {isActive && <Badge>Turn</Badge>}
+          {hasPriority && <Badge color="#22c55e">Priority</Badge>}
+        </div>
         <div className="text-xl font-display font-bold text-mtg-text flex-shrink-0">{player.life}</div>
       </div>
     </div>
   );
 }
+
 function PlayerGrid({ gs }: { gs: GameState }) {
-  const pp = gs.priority.priorityHolder; const o = gs.playerOrder;
+  const pp = gs.priority.priorityHolder;
+  const o = gs.playerOrder;
   const seats = o.length === 4 ? [o[0], o[1], o[3], o[2]] : o;
-  return <div className="grid grid-cols-2 gap-2">{seats.map((pid) => <PlayerPanel key={pid} player={gs.players[pid]!} isActive={gs.activePlayer === pid} hasPriority={pp === pid} />)}</div>;
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {seats.map((pid) => <PlayerPanel key={pid} player={gs.players[pid]!} isActive={gs.activePlayer === pid} hasPriority={pp === pid} />)}
+    </div>
+  );
 }
 
-// ─── Visual Battlefield ──────────────────────────────────────────────────────
+// ─── Battlefield Display (card images) ───────────────────────────────────────
+
 function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents: Permanent[]; playerId: PlayerId; playerLabel: string }) {
   const pp = permanents.filter((p) => p.controller === playerId);
   if (pp.length === 0) return <div className="text-[11px] text-mtg-text-muted italic py-1">{playerLabel}: No permanents</div>;
@@ -184,11 +103,16 @@ function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents:
       <div className="flex flex-wrap gap-2">
         {pp.map((perm) => (
           <div key={perm.id} className={cn("relative group", perm.tapped && "opacity-60")}>
-            {perm.imageUri ? <img src={perm.imageUri} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-              : <div className={cn("w-20 h-28 rounded-lg border bg-mtg-card flex flex-col items-center justify-center p-1", perm.tapped ? "border-mtg-border" : "border-mtg-border-light")}><span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>{perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}</div>}
+            {perm.imageUri ? (
+              <img src={perm.imageUri} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            ) : (
+              <div className="w-20 h-28 rounded-lg border border-mtg-border-light bg-mtg-card flex flex-col items-center justify-center p-1">
+                <span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>
+                {perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}
+              </div>
+            )}
             {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
-            {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition || "any"}`).join("\n")}>{perm.triggers.length}</div>}
-            {perm.keywords.length > 0 && <div className="absolute bottom-0 left-0 right-0 bg-black/80 rounded-b-lg px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><div className="flex gap-0.5 flex-wrap justify-center">{perm.keywords.map((kw) => <span key={kw} className="text-[7px] text-mtg-gold capitalize">{kw.replace("_"," ")}</span>)}</div></div>}
+            {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition}`).join("\n")}>{perm.triggers.length}</div>}
           </div>
         ))}
       </div>
@@ -196,35 +120,26 @@ function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents:
   );
 }
 
-// ─── Visual Card Stack ───────────────────────────────────────────────────────
+// ─── Visual Card Stack (LIFO — top of stack at top) ──────────────────────────
+
 function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameState }) {
-  if (stack.length === 0) return <div className="text-center py-6 text-mtg-text-muted text-xs border border-dashed border-mtg-border rounded-xl">Stack is empty &mdash; add a spell or ability to begin</div>;
-  const rev = [...stack].reverse();
+  if (stack.length === 0) return <div className="text-center py-6 text-mtg-text-muted text-sm border border-dashed border-mtg-border rounded-xl">Stack is empty &mdash; add a spell or ability to begin</div>;
+  // Show top of stack (last item) first — this is LIFO order
+  const topFirst = [...stack].reverse();
   return (
     <div className="flex flex-col items-center py-4">
-      {rev.map((item, i) => (
-        <motion.div
-          key={item.id}
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: i * 0.08 }}
-          style={{ marginTop: i === 0 ? 0 : -80, zIndex: rev.length - i }}
-          className="relative"
-        >
+      {topFirst.map((item, i) => (
+        <motion.div key={item.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.06 }} style={{ marginTop: i === 0 ? 0 : -75, zIndex: topFirst.length - i }} className="relative">
           <div className={cn("relative", i === 0 && "animate-pulse-subtle")}>
-            <img
-              src={item.imageUri || CARD_BACK}
-              alt={item.name}
-              width={112}
-              height={156}
-              className={cn("rounded-lg shadow-lg border-2 block", i === 0 ? "border-mtg-gold shadow-mtg-gold/30" : "border-mtg-border/50")}
-              onError={(e) => { (e.target as HTMLImageElement).src = CARD_BACK; }}
-            />
+            <img src={item.imageUri || CARD_BACK} alt={item.name} width={112} height={156} className={cn("rounded-lg shadow-lg border-2 block", i === 0 ? "border-mtg-gold shadow-mtg-gold/30" : "border-mtg-border/50")} onError={(e) => { (e.target as HTMLImageElement).src = CARD_BACK; }} />
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent rounded-b-lg px-1.5 py-1">
               <div className="text-[9px] font-display font-bold text-white leading-tight truncate">{item.name}</div>
-              <div className="text-[8px] text-white/70">{pLabel(gs, item.controller)}{item.type === "triggered_ability" ? " \u00B7 Trigger" : item.type === "activated_ability" ? " \u00B7 Ability" : ""}</div>
+              <div className="text-[8px] text-white/70">
+                {pLabel(gs, item.controller)}
+                {item.type === "triggered_ability" ? " \u00B7 Trigger" : item.type === "activated_ability" ? " \u00B7 Ability" : ""}
+              </div>
             </div>
-            {i === 0 && <div className="absolute -top-2 -right-2 z-10"><Badge>Next</Badge></div>}
+            {i === 0 && <div className="absolute -top-2 -right-2 z-10"><Badge>Resolves First</Badge></div>}
           </div>
         </motion.div>
       ))}
@@ -232,7 +147,8 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
   );
 }
 
-// ─── Resolution Modal (optimized transitions) ───────────────────────────────
+// ─── Resolution Modal with Confirm Step ──────────────────────────────────────
+
 interface ResolutionStep { item: EngineStackItem; logEntries: LogEntry[]; status: "resolved" | "fizzled"; }
 
 function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onClose: () => void; gs: GameState }) {
@@ -241,7 +157,7 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
   const [auto, setAuto] = useState(false);
 
   useEffect(() => {
-    if (auto && phase === "resolving" && cur < steps.length - 1) { const t = setTimeout(() => setCur((p) => p + 1), 2000); return () => clearTimeout(t); }
+    if (auto && phase === "resolving" && cur < steps.length - 1) { const t = setTimeout(() => setCur(p => p + 1), 2200); return () => clearTimeout(t); }
     if (auto && cur >= steps.length - 1) setAuto(false);
   }, [auto, cur, steps.length, phase]);
 
@@ -250,13 +166,11 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)" }}>
       <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} transition={{ duration: 0.15 }} className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-mtg-bg border border-mtg-border rounded-2xl shadow-2xl">
-
-        {/* ─── CONFIRM PHASE: Show full stack ─── */}
         {phase === "confirm" && (
           <>
             <div className="px-4 py-3 border-b border-mtg-border">
               <div className="text-sm font-display font-bold text-mtg-gold">Stack to Resolve ({steps.length} items)</div>
-              <div className="text-xs text-mtg-text-muted mt-0.5">Items resolve top to bottom (Last In, First Out)</div>
+              <div className="text-xs text-mtg-text-muted mt-0.5">Resolves top to bottom (Last In, First Out)</div>
             </div>
             <div className="px-4 py-3 space-y-2 max-h-[60vh] overflow-y-auto">
               {steps.map((s, i) => (
@@ -269,7 +183,7 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
                       {pLabel(gs, s.item.controller)}
                       {s.item.type === "triggered_ability" && " \u00B7 Trigger"}
                       {s.item.type === "activated_ability" && " \u00B7 Ability"}
-                      {s.item.targets.length > 0 && ` \u2192 ${s.item.targets.map((t) => t.name).join(", ")}`}
+                      {s.item.targets.length > 0 && ` \u2192 ${s.item.targets.map(t => t.name).join(", ")}`}
                     </div>
                     {s.item.effect && <div className="text-[11px] text-mtg-text-muted mt-0.5 line-clamp-2">{s.item.effect}</div>}
                   </div>
@@ -282,24 +196,17 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
             </div>
           </>
         )}
-
-        {/* ─── RESOLVING PHASE: Animated step-through ─── */}
         {phase === "resolving" && step && (
           <>
             <div className="flex items-center justify-between px-4 py-3 border-b border-mtg-border">
               <div className="text-sm font-display font-bold text-mtg-gold">Resolving Stack</div>
-              <div className="flex items-center gap-2"><span className="text-xs text-mtg-text-muted">{cur + 1} / {steps.length}</span><button onClick={onClose} className="text-mtg-text-muted hover:text-mtg-text text-lg">&times;</button></div>
+              <div className="flex items-center gap-2"><span className="text-xs text-mtg-text-muted">{cur + 1}/{steps.length}</span><button onClick={onClose} className="text-mtg-text-muted hover:text-mtg-text text-lg">&times;</button></div>
             </div>
-            <div className="relative flex flex-col items-center py-6 px-4 min-h-[260px]">
-              {steps.slice(cur + 1).reverse().map((s, i) => (
-                <div key={s.item.id} className="absolute" style={{ top: 20 + i * 3, zIndex: i, opacity: Math.max(0.1, 0.3 - i * 0.08) }}>
-                  <img src={s.item.imageUri || CARD_BACK} alt="" width={128} height={179} className="rounded-lg border border-mtg-border/30" />
-                </div>
-              ))}
+            <div className="flex flex-col items-center py-6 px-4 min-h-[240px]">
               <AnimatePresence mode="popLayout">
-                <motion.div key={step.item.id + cur} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 120 }} transition={{ duration: 0.15, ease: "easeOut" }} className="relative z-20">
+                <motion.div key={step.item.id + cur} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 120 }} transition={{ duration: 0.15 }} className="relative">
                   <img src={step.item.imageUri || CARD_BACK} alt={step.item.name} width={160} height={223} className={cn("rounded-xl shadow-2xl border-2", step.status === "fizzled" ? "border-red-500 opacity-60" : "border-green-500")} />
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-30">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <Badge color={step.status === "fizzled" ? "#dc2626" : "#22c55e"}>{step.status === "fizzled" ? "Fizzled" : "Resolved"}</Badge>
                   </div>
                 </motion.div>
@@ -309,15 +216,15 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
               <div className="text-base font-display font-bold text-mtg-text mb-1">{step.item.name}</div>
               <div className="text-sm text-mtg-text-dim mb-2">
                 {pLabel(gs, step.item.controller)}
-                {step.item.targets.length > 0 && ` \u2192 Targeting: ${step.item.targets.map((t) => t.name).join(", ")}`}
+                {step.item.targets.length > 0 && ` \u2192 ${step.item.targets.map(t => t.name).join(", ")}`}
               </div>
               <div className="space-y-2 max-h-36 overflow-y-auto">
-                {step.logEntries.filter((e) => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
+                {step.logEntries.filter(e => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
                   <div key={i} className="flex items-start gap-2">
-                    {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0 mt-0.5">{LOG_ICONS[e.type]}</span>}
+                    {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0">{LOG_ICONS[e.type]}</span>}
                     <div>
                       <div className="text-sm font-display" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{e.text}</div>
-                      {e.detail && <div className="text-xs text-mtg-text-dim mt-0.5 leading-relaxed whitespace-pre-wrap">{e.detail}</div>}
+                      {e.detail && <div className="text-xs text-mtg-text-dim mt-0.5 whitespace-pre-wrap">{e.detail}</div>}
                     </div>
                   </div>
                 ))}
@@ -325,8 +232,8 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
             </div>
             <div className="flex justify-center gap-1.5 py-2">{steps.map((_, i) => <div key={i} className={cn("w-2 h-2 rounded-full transition-all", i === cur ? "bg-mtg-gold scale-125" : i < cur ? "bg-green-500" : "bg-mtg-border")} />)}</div>
             <div className="flex gap-2 px-4 pb-4">
-              <Button variant="secondary" size="sm" onClick={() => setCur((p) => Math.max(0, p - 1))} disabled={cur === 0}>&larr; Prev</Button>
-              <Button className="flex-1" size="sm" onClick={() => { if (cur >= steps.length - 1) onClose(); else setCur((p) => p + 1); }}>{cur >= steps.length - 1 ? "Done" : "Next \u2192"}</Button>
+              <Button variant="secondary" size="sm" onClick={() => setCur(p => Math.max(0, p - 1))} disabled={cur === 0}>&larr;</Button>
+              <Button className="flex-1" size="sm" onClick={() => { if (cur >= steps.length - 1) onClose(); else setCur(p => p + 1); }}>{cur >= steps.length - 1 ? "Done" : "Next \u2192"}</Button>
               <Button variant="ghost" size="sm" onClick={() => setAuto(!auto)}>{auto ? "Pause" : "Auto"}</Button>
             </div>
           </>
@@ -336,12 +243,13 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
   );
 }
 
-// ─── Card Preview with ban check ─────────────────────────────────────────────
+// ─── Card Preview with Ban Check ─────────────────────────────────────────────
+
 function CardPreview({ card, targetReq, format }: { card: ScryfallCard; targetReq: ReturnType<typeof detectTargetRequirement>; format?: string }) {
   const legality = format && card.legalities ? (card.legalities as Record<string, string>)[format] : null;
   const isBanned = legality === "banned";
-  const isNotLegal = legality === "not_legal";
   const isRestricted = legality === "restricted";
+  const isNotLegal = legality === "not_legal";
 
   return (
     <div className={cn("flex gap-2.5 p-2 bg-mtg-surface rounded-lg border", isBanned ? "border-red-500/60" : "border-mtg-border")}>
@@ -350,48 +258,55 @@ function CardPreview({ card, targetReq, format }: { card: ScryfallCard; targetRe
         <div className="text-xs font-display font-bold text-mtg-text">{card.name}</div>
         <div className="text-[10px] text-mtg-text-muted">{card.type_line}</div>
         {card.power && <div className="text-[10px] text-mtg-text-dim">{card.power}/{card.toughness}</div>}
-        {isBanned && (
-          <div className="mt-1 px-2 py-1 bg-red-500/15 border border-red-500/30 rounded text-xs text-red-400 font-display font-bold">
-            {"\u26D4"} BANNED in {format}
-          </div>
-        )}
-        {isRestricted && (
-          <div className="mt-1 px-2 py-1 bg-amber-500/15 border border-amber-500/30 rounded text-xs text-amber-400 font-display font-bold">
-            {"\u26A0"} RESTRICTED in {format} (1 copy max)
-          </div>
-        )}
-        {isNotLegal && !isBanned && (
-          <div className="mt-1 px-2 py-1 bg-gray-500/15 border border-gray-500/30 rounded text-[10px] text-gray-400 font-display">
-            Not legal in {format}
-          </div>
-        )}
-        {targetReq && <div className="mt-1 text-[10px] text-red-400 font-bold">{"\u{1F3AF}"} Requires: {targetReq.description}</div>}
+        {isBanned && <div className="mt-1 px-2 py-1 bg-red-500/15 border border-red-500/30 rounded text-xs text-red-400 font-bold">{"\u26D4"} BANNED in {format}</div>}
+        {isRestricted && <div className="mt-1 px-2 py-1 bg-amber-500/15 border border-amber-500/30 rounded text-xs text-amber-400 font-bold">{"\u26A0"} RESTRICTED in {format}</div>}
+        {isNotLegal && !isBanned && <div className="mt-1 text-[10px] text-gray-400">Not legal in {format}</div>}
+        {targetReq && <div className="mt-1 text-[10px] text-red-400 font-bold">{"\u{1F3AF}"} {targetReq.description}</div>}
         {!targetReq && !isBanned && card.oracle_text && <div className="text-[10px] text-mtg-text-dim mt-1 line-clamp-2">{card.oracle_text}</div>}
       </div>
     </div>
   );
 }
 
-// ─── Ability Picker (when card has multiple activated abilities) ──────────────
-function AbilityPicker({ abilities, onSelect }: { abilities: ActivatedAbilityInfo[]; onSelect: (a: ActivatedAbilityInfo) => void }) {
+// ─── Add Permanent Form (for board setup) ────────────────────────────────────
+
+function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Permanent, "id">) => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [controller, setController] = useState<PlayerId>("player_a");
+  const { query, setQuery, suggestions } = useCardAutocomplete();
+  const { card, loading: cardLoading, fetchCard, clearCard } = useCardFetch();
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  if (!showForm) return <button onClick={() => setShowForm(true)} className="w-full py-2.5 text-sm text-mtg-text-dim hover:text-mtg-gold border border-dashed border-mtg-border rounded-lg transition-colors font-display">+ Add Permanent to Battlefield</button>;
+
   return (
-    <div className="space-y-1.5">
-      <div className="text-xs font-display font-bold text-mtg-gold">Which ability?</div>
-      {abilities.map((a, i) => (
-        <button key={i} onClick={() => onSelect(a)} className="w-full text-left">
-          <Card className="!p-2.5 hover:!border-mtg-gold/50 transition-all">
-            <div className="text-[11px] text-mtg-text leading-relaxed">
-              <span className="font-bold text-mtg-gold">{a.cost}</span>: {a.effect}
-            </div>
-            {a.requiresTarget && <div className="text-[10px] text-red-400 mt-0.5">{"\u{1F3AF}"} {a.targetDescription}</div>}
-          </Card>
-        </button>
-      ))}
-    </div>
+    <Card className="!p-3">
+      <SectionLabel>Add permanent (board setup)</SectionLabel>
+      <div className="space-y-2">
+        <div className="relative">
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); clearCard(); }} onFocus={() => suggestions.length > 0 && setShowSuggestions(true)} placeholder="Search card name..." className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
+          {cardLoading && <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-mtg-text-muted animate-pulse">Fetching...</div>}
+          <AnimatePresence>{showSuggestions && suggestions.length > 0 && !card && (
+            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute z-50 top-full mt-1 left-0 right-0 bg-mtg-surface border border-mtg-border rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto">
+              {suggestions.slice(0, 8).map((n) => <button key={n} onClick={() => { setQuery(n); setShowSuggestions(false); fetchCard(n); }} className="w-full text-left px-3 py-1.5 text-xs text-mtg-text hover:bg-mtg-surface-hover transition-colors border-b border-mtg-border/50 last:border-0">{n}</button>)}
+            </motion.div>
+          )}</AnimatePresence>
+        </div>
+        {card && <CardPreview card={card} targetReq={null} format={gs.format} />}
+        <select value={controller} onChange={(e) => setController(e.target.value as PlayerId)} className="w-full px-2.5 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm outline-none">
+          {gs.playerOrder.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
+        </select>
+        <div className="flex gap-2">
+          <Button onClick={() => { if (!card) return; onAdd(cardToPermanent(card, controller)); setQuery(""); clearCard(); setShowForm(false); }} className="flex-1" size="sm" disabled={!card}>{card ? `Add ${card.name}` : "Select a card"}</Button>
+          <Button variant="ghost" onClick={() => { setShowForm(false); clearCard(); setQuery(""); }} size="sm">Cancel</Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 
-// ─── Add Spell or Ability Form ───────────────────────────────────────────────
+// ─── Cast Spell / Activate Ability Form ──────────────────────────────────────
+
 function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: Omit<EngineStackItem, "id" | "timestamp">) => void }) {
   const [showForm, setShowForm] = useState(false);
   const [mode, setMode] = useState<"spell" | "ability">("spell");
@@ -407,17 +322,9 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
   const targetReq = mode === "spell" && card ? detectTargetRequirement(card) : null;
   const abilities = mode === "ability" && card ? parseActivatedAbilities(card) : [];
 
-  // Auto-select if only one ability
   useEffect(() => {
-    if (mode === "ability" && abilities.length === 1 && !selectedAbility) {
-      setSelectedAbility(abilities[0]);
-    }
+    if (mode === "ability" && abilities.length === 1 && !selectedAbility) setSelectedAbility(abilities[0]);
   }, [abilities.length, mode, selectedAbility]);
-
-  const handleSelectCard = async (name: string) => {
-    setQuery(name); setShowSuggestions(false); setTarget(""); setTargetError(""); setSelectedAbility(null);
-    await fetchCard(name);
-  };
 
   const resetForm = () => { setShowForm(false); clearCard(); setQuery(""); setTargetError(""); setSelectedAbility(null); setTarget(""); };
 
@@ -436,7 +343,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
     resetForm();
   };
 
-  if (!showForm) return <Button onClick={() => setShowForm(true)} className="w-full" disabled={gs.priority.splitSecondActive}>{gs.priority.splitSecondActive ? "Split second \u2014 cannot respond" : "+ Add Spell or Ability"}</Button>;
+  if (!showForm) return <Button onClick={() => setShowForm(true)} className="w-full" disabled={gs.priority.splitSecondActive}>{gs.priority.splitSecondActive ? "Split second \u2014 cannot respond" : "+ Add Spell or Ability to Stack"}</Button>;
 
   return (
     <Card className="!p-3">
@@ -449,64 +356,52 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
         ))}
       </div>
       <div className="space-y-2">
-        {/* Card search — same for both modes */}
         <div className="relative">
           <input value={query} onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); clearCard(); setTargetError(""); setSelectedAbility(null); }}
-            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-            placeholder={mode === "spell" ? "Search card name..." : "Search permanent with ability..."}
+            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)} placeholder={mode === "spell" ? "Search card name..." : "Search permanent with ability..."}
             className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
           {cardLoading && <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-mtg-text-muted animate-pulse">Fetching...</div>}
-          <AnimatePresence>
-            {showSuggestions && suggestions.length > 0 && !card && (
-              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute z-50 top-full mt-1 left-0 right-0 bg-mtg-surface border border-mtg-border rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto">
-                {suggestions.slice(0, 8).map((n) => <button key={n} onClick={() => handleSelectCard(n)} className="w-full text-left px-3 py-1.5 text-xs text-mtg-text hover:bg-mtg-surface-hover transition-colors border-b border-mtg-border/50 last:border-0">{n}</button>)}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <AnimatePresence>{showSuggestions && suggestions.length > 0 && !card && (
+            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute z-50 top-full mt-1 left-0 right-0 bg-mtg-surface border border-mtg-border rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto">
+              {suggestions.slice(0, 8).map((n) => <button key={n} onClick={() => { setQuery(n); setShowSuggestions(false); setTarget(""); setTargetError(""); setSelectedAbility(null); fetchCard(n); }} className="w-full text-left px-3 py-1.5 text-xs text-mtg-text hover:bg-mtg-surface-hover transition-colors border-b border-mtg-border/50 last:border-0">{n}</button>)}
+            </motion.div>
+          )}</AnimatePresence>
         </div>
-
-        {/* Card preview */}
         {card && <CardPreview card={card} targetReq={mode === "spell" ? targetReq : null} format={gs.format} />}
-
-        {/* Ability picker for activated abilities */}
         {mode === "ability" && card && abilities.length > 1 && !selectedAbility && (
-          <AbilityPicker abilities={abilities} onSelect={(a) => setSelectedAbility(a)} />
+          <div className="space-y-1.5">
+            <div className="text-xs font-display font-bold text-mtg-gold">Which ability?</div>
+            {abilities.map((a, i) => (
+              <button key={i} onClick={() => setSelectedAbility(a)} className="w-full text-left">
+                <Card className="!p-2.5 hover:!border-mtg-gold/50 transition-all">
+                  <div className="text-[11px] text-mtg-text"><span className="font-bold text-mtg-gold">{a.cost}</span>: {a.effect}</div>
+                  {a.requiresTarget && <div className="text-[10px] text-red-400 mt-0.5">{"\u{1F3AF}"} {a.targetDescription}</div>}
+                </Card>
+              </button>
+            ))}
+          </div>
         )}
-        {mode === "ability" && card && abilities.length === 0 && (
-          <div className="text-[11px] text-red-400 p-2 bg-red-500/10 rounded-lg">No activated abilities found on {card.name}. This card may only have triggered or static abilities.</div>
-        )}
+        {mode === "ability" && card && abilities.length === 0 && <div className="text-[11px] text-red-400 p-2 bg-red-500/10 rounded-lg">No activated abilities found on {card.name}.</div>}
         {mode === "ability" && selectedAbility && (
           <div className="p-2 bg-mtg-gold/10 border border-mtg-gold/30 rounded-lg">
             <div className="text-[11px] text-mtg-text"><span className="font-bold text-mtg-gold">{selectedAbility.cost}</span>: {selectedAbility.effect}</div>
             {abilities.length > 1 && <button onClick={() => setSelectedAbility(null)} className="text-[10px] text-mtg-text-muted hover:text-mtg-gold mt-1">Change ability</button>}
           </div>
         )}
-
-        {/* Controller */}
-        <select value={controller} onChange={(e) => setController(e.target.value as PlayerId)} className="w-full px-2.5 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-xs outline-none">
+        <select value={controller} onChange={(e) => setController(e.target.value as PlayerId)} className="w-full px-2.5 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm outline-none">
           {gs.playerOrder.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
         </select>
-
-        {/* Target — shown when card is selected and either spell needs target or ability needs target */}
         {card && (mode === "spell" || selectedAbility) && (
           <div>
             <input value={target} onChange={(e) => { setTarget(e.target.value); setTargetError(""); }}
-              placeholder={
-                mode === "spell" && targetReq?.required ? `\u{1F3AF} ${targetReq.description} (required)`
-                : mode === "ability" && selectedAbility?.requiresTarget ? `\u{1F3AF} ${selectedAbility.targetDescription} (required)`
-                : "Target (optional)"
-              }
-              className={cn("w-full px-3 py-1.5 bg-mtg-surface border rounded-lg text-mtg-text text-xs font-display outline-none placeholder:text-mtg-text-muted",
-                targetError ? "border-red-500" : (targetReq?.required || selectedAbility?.requiresTarget) ? "border-amber-600/50" : "border-mtg-border")} />
+              placeholder={targetReq?.required ? `\u{1F3AF} ${targetReq.description} (required)` : selectedAbility?.requiresTarget ? `\u{1F3AF} ${selectedAbility.targetDescription} (required)` : "Target (optional)"}
+              className={cn("w-full px-3 py-1.5 bg-mtg-surface border rounded-lg text-mtg-text text-sm font-display outline-none placeholder:text-mtg-text-muted", targetError ? "border-red-500" : (targetReq?.required || selectedAbility?.requiresTarget) ? "border-amber-600/50" : "border-mtg-border")} />
             {targetError && <div className="text-[10px] text-red-400 mt-1">{targetError}</div>}
           </div>
         )}
-
         <div className="flex gap-2">
-          <Button onClick={handleCast} className="flex-1" size="sm"
-            disabled={mode === "spell" ? !card : (!card || !selectedAbility)}>
-            {mode === "spell" ? (card ? `Cast ${card.name}` : "Select a card")
-              : (selectedAbility ? `Activate: ${selectedAbility.cost.slice(0, 20)}${selectedAbility.cost.length > 20 ? "..." : ""}` : "Select an ability")}
+          <Button onClick={handleCast} className="flex-1" size="sm" disabled={mode === "spell" ? !card : (!card || !selectedAbility)}>
+            {mode === "spell" ? (card ? `Cast ${card.name}` : "Select a card") : (selectedAbility ? `Activate` : "Select an ability")}
           </Button>
           <Button variant="ghost" onClick={resetForm} size="sm">Cancel</Button>
         </div>
@@ -515,77 +410,20 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
   );
 }
 
-// ─── Add Permanent Form ──────────────────────────────────────────────────────
-function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Permanent, "id">) => void }) {
-  const [showForm, setShowForm] = useState(false);
-  const [controller, setController] = useState<PlayerId>("player_a");
-  const { query, setQuery, suggestions } = useCardAutocomplete();
-  const { card, loading: cardLoading, fetchCard, clearCard } = useCardFetch();
-  const [showSuggestions, setShowSuggestions] = useState(false);
-
-  if (!showForm) return <button onClick={() => setShowForm(true)} className="w-full py-2 text-xs text-mtg-text-dim hover:text-mtg-gold border border-dashed border-mtg-border rounded-lg transition-colors font-display">+ Add Permanent to Battlefield</button>;
-  return (
-    <Card className="!p-3">
-      <SectionLabel>Add permanent</SectionLabel>
-      <div className="space-y-2">
-        <div className="relative">
-          <input value={query} onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); clearCard(); }} onFocus={() => suggestions.length > 0 && setShowSuggestions(true)} placeholder="Search card name..." className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
-          {cardLoading && <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-mtg-text-muted animate-pulse">Fetching...</div>}
-          <AnimatePresence>{showSuggestions && suggestions.length > 0 && !card && (
-            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute z-50 top-full mt-1 left-0 right-0 bg-mtg-surface border border-mtg-border rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto">
-              {suggestions.slice(0, 8).map((n) => <button key={n} onClick={() => { setQuery(n); setShowSuggestions(false); fetchCard(n); }} className="w-full text-left px-3 py-1.5 text-xs text-mtg-text hover:bg-mtg-surface-hover transition-colors border-b border-mtg-border/50 last:border-0">{n}</button>)}
-            </motion.div>
-          )}</AnimatePresence>
-        </div>
-        {card && <CardPreview card={card} targetReq={null} format={gs.format} />}
-        <select value={controller} onChange={(e) => setController(e.target.value as PlayerId)} className="w-full px-2.5 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-xs outline-none">
-          {gs.playerOrder.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
-        </select>
-        <div className="flex gap-2">
-          <Button onClick={() => { if (!card) return; onAdd(cardToPermanent(card, controller)); setQuery(""); clearCard(); setShowForm(false); }} className="flex-1" size="sm" disabled={!card}>{card ? `Add ${card.name}` : "Select a card"}</Button>
-          <Button variant="ghost" onClick={() => { setShowForm(false); clearCard(); setQuery(""); }} size="sm">Cancel</Button>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-// ─── Lesson Banner ───────────────────────────────────────────────────────────
-function LessonBanner({ preset }: { preset: ScenarioPreset }) {
-  const [exp, setExp] = useState(false);
-  return (
-    <button onClick={() => setExp(!exp)} className="w-full text-left">
-      <Card className="!p-3 !border-mtg-gold/30 bg-mtg-gold/5"><div className="flex items-start gap-2"><span className="text-sm mt-0.5">{"\u{1F4CB}"}</span><div className="min-w-0 flex-1"><div className="text-xs font-display font-bold text-mtg-gold">{preset.name}<span className="text-mtg-text-muted font-normal ml-2">{exp ? "\u25BE" : "\u25B8"} Key lesson</span></div>{exp && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="text-xs text-mtg-text leading-relaxed mt-1.5">{preset.lesson}</motion.p>}</div></div></Card>
-    </button>
-  );
-}
-
 // ─── Action Log ──────────────────────────────────────────────────────────────
+
 function ActionLog({ log, logEndRef }: { log: LogEntry[]; logEndRef: React.RefObject<HTMLDivElement | null> }) {
   if (log.length === 0) return null;
-
-  // Filter out noisy priority_receive entries to keep the log clean
-  const filtered = log.filter((e) => e.type !== "priority_receive");
-
+  const filtered = log.filter(e => e.type !== "priority_receive");
   return (
     <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1">
       {filtered.map((e) => (
-        <div key={e.id} className={cn(
-          "px-3 py-2 rounded-lg",
-          e.highlight ? "bg-mtg-surface border border-mtg-border/50" : "",
-          e.type === "priority_pass" ? "opacity-50" : ""
-        )}>
+        <div key={e.id} className={cn("px-3 py-2 rounded-lg", e.highlight ? "bg-mtg-surface border border-mtg-border/50" : "", e.type === "priority_pass" ? "opacity-40" : "")}>
           <div className="flex items-start gap-2">
             {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0 mt-0.5">{LOG_ICONS[e.type]}</span>}
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-display font-semibold" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>
-                {e.text}
-              </div>
-              {e.detail && (
-                <div className="text-xs text-mtg-text-dim mt-1 leading-relaxed whitespace-pre-wrap">
-                  {e.detail}
-                </div>
-              )}
+              <div className="text-sm font-display font-semibold" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{e.text}</div>
+              {e.detail && <div className="text-xs text-mtg-text-dim mt-1 leading-relaxed whitespace-pre-wrap">{e.detail}</div>}
             </div>
           </div>
         </div>
@@ -595,7 +433,27 @@ function ActionLog({ log, logEndRef }: { log: LogEntry[]; logEndRef: React.RefOb
   );
 }
 
-// ─── Resolution Logic (no structuredClone per step — pre-build all steps) ────
+// ─── Lesson Banner ───────────────────────────────────────────────────────────
+
+function LessonBanner({ preset }: { preset: ScenarioPreset }) {
+  const [exp, setExp] = useState(false);
+  return (
+    <button onClick={() => setExp(!exp)} className="w-full text-left">
+      <Card className="!p-3 !border-mtg-gold/30 bg-mtg-gold/5">
+        <div className="flex items-start gap-2">
+          <span className="text-sm mt-0.5">{"\u{1F4CB}"}</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-display font-bold text-mtg-gold">{preset.name}<span className="text-mtg-text-muted font-normal ml-2">{exp ? "\u25BE" : "\u25B8"} Key lesson</span></div>
+            {exp && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="text-xs text-mtg-text leading-relaxed mt-1.5">{preset.lesson}</motion.p>}
+          </div>
+        </div>
+      </Card>
+    </button>
+  );
+}
+
+// ─── Resolution Logic ────────────────────────────────────────────────────────
+
 function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]; finalState: GameState } {
   const steps: ResolutionStep[] = [];
   let state = JSON.parse(JSON.stringify(beforeState)) as GameState;
@@ -607,86 +465,145 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
     const stackBefore = state.stack.length;
     let inner = 0;
     while (state.stack.length >= stackBefore && inner < 50) { inner++; state = processAction(state, { type: "pass_priority" }); }
-    steps.push({ item: topItem, logEntries: state.actionLog.slice(logBefore), status: state.actionLog.slice(logBefore).some((e) => e.type === "fizzle") ? "fizzled" : "resolved" });
+    steps.push({ item: topItem, logEntries: state.actionLog.slice(logBefore), status: state.actionLog.slice(logBefore).some(e => e.type === "fizzle") ? "fizzled" : "resolved" });
   }
   return { steps, finalState: state };
 }
 
 // ─── Main Simulator ──────────────────────────────────────────────────────────
+
 export function StackSimulator({ format = "modern" }: { format?: string }) {
-  const [gs, setGs] = useState<GameState>(() => { const c = format === "commander"; return createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 }); });
+  const [gs, setGs] = useState<GameState>(() => {
+    const c = format === "commander";
+    return createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 });
+  });
   const [preset, setPreset] = useState<ScenarioPreset | null>(null);
   const [resSteps, setResSteps] = useState<ResolutionStep[] | null>(null);
-  const [loadingImages, setLoadingImages] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { const c = format === "commander"; setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 })); setPreset(null); }, [format]);
-  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [gs.actionLog.length]);
-
-  const dispatch = useCallback((a: Parameters<typeof processAction>[1]) => { setGs((p) => processAction(p, a)); }, []);
-
-  const loadPresetWithImages = useCallback(async (p: ScenarioPreset) => {
-    const state = loadPreset(p, format);
-    setGs(state);
-    setPreset(p);
-    setLoadingImages(true);
-    try {
-      const hydrated = await hydratePresetImages(state);
-      // Deep copy to ensure React detects changes to nested stack/battlefield arrays
-      setGs(JSON.parse(JSON.stringify(hydrated)));
-    } catch { /* images failed, state still works without them */ }
-    setLoadingImages(false);
+  // Reset on format change
+  useEffect(() => {
+    const c = format === "commander";
+    setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 }));
+    setPreset(null);
   }, [format]);
 
-  const handleReset = useCallback(() => {
-    if (preset) { loadPresetWithImages(preset); }
+  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [gs.actionLog.length]);
+
+  const dispatch = useCallback((a: Parameters<typeof processAction>[1]) => { setGs(p => processAction(p, a)); }, []);
+
+  const handleReset = () => {
+    if (preset) { setGs(loadPreset(preset, format)); }
     else { const c = format === "commander"; setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 })); }
-  }, [preset, format, loadPresetWithImages]);
-  const handleResolve = () => { if (gs.stack.length === 0) return; const { steps, finalState } = buildResolutionSteps(gs); setResSteps(steps); setGs(finalState); };
+  };
+
+  const handlePhaseChange = (step: TurnStep) => {
+    setGs(prev => {
+      const next = { ...JSON.parse(JSON.stringify(prev)) as GameState };
+      next.currentStep = step;
+      next.actionLog.push({ id: generateId(), timestamp: next.stepCount++, type: "phase_change", text: `Phase set to: ${STEP_LABELS[step]}`, highlight: true });
+      return next;
+    });
+  };
+
+  const handleResolve = () => {
+    if (gs.stack.length === 0) return;
+    const { steps, finalState } = buildResolutionSteps(gs);
+    setResSteps(steps);
+    setGs(finalState);
+  };
+
+  const handleCast = (item: Omit<EngineStackItem, "id" | "timestamp">) => {
+    // Route activated abilities correctly
+    if (item.type === "activated_ability") {
+      dispatch({ type: "activate_ability", ability: item });
+    } else {
+      dispatch({ type: "cast_spell", spell: item });
+    }
+  };
 
   return (
     <div className="space-y-3">
       <style>{`.animate-pulse-subtle { animation: ps 2s ease-in-out infinite; } @keyframes ps { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.15); } }`}</style>
+
+      {/* Header with phase selector */}
       <div className="flex items-center justify-between">
-        <div><div className="text-xs text-mtg-text-muted uppercase tracking-wider font-bold">Turn {gs.turnNumber} &middot; {pLabel(gs, gs.activePlayer)}&apos;s Turn</div><div className="text-sm font-display font-bold text-mtg-gold mt-0.5">{STEP_LABELS[gs.currentStep]}</div></div>
-        <div className="flex gap-1.5"><Button variant="secondary" size="sm" onClick={() => dispatch({ type: "undo" })} disabled={!canUndo()}>Undo</Button><Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button></div>
+        <div>
+          <div className="text-xs text-mtg-text-muted uppercase tracking-wider font-bold">
+            Turn {gs.turnNumber} &middot; {pLabel(gs, gs.activePlayer)}&apos;s Turn
+          </div>
+          <select value={gs.currentStep} onChange={(e) => handlePhaseChange(e.target.value as TurnStep)}
+            className="mt-1 px-2 py-1 bg-mtg-surface border border-mtg-gold/50 rounded-lg text-sm font-display font-bold text-mtg-gold outline-none cursor-pointer">
+            {PHASE_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-1.5">
+          <Button variant="secondary" size="sm" onClick={() => dispatch({ type: "undo" })} disabled={!canUndo()}>Undo</Button>
+          <Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button>
+        </div>
       </div>
-      <ScenarioDropdown onSelect={(p) => { loadPresetWithImages(p); }} />
-      <MetaDecksDropdown format={format} onAddCard={async (cardName) => {
-        try {
-          const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}`);
-          if (res.ok) {
-            const card = await res.json();
-            const { cardToPermanent: ctp } = await import("@/engine");
-            dispatch({ type: "add_permanent", permanent: ctp(card, gs.playerOrder[0]) });
-          }
-        } catch { /* failed to fetch card */ }
-      }} />
+
+      {/* Scenarios */}
+      <ScenarioDropdown onSelect={(p) => { setPreset(p); setGs(loadPreset(p, format)); }} />
       {preset && <LessonBanner preset={preset} />}
+
+      {/* Players */}
       <PlayerGrid gs={gs} />
-      <div><SectionLabel>Battlefield</SectionLabel>{gs.playerOrder.map((pid) => <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} />)}<AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} /></div>
-      <div><SectionLabel>The Stack ({gs.stack.length} item{gs.stack.length !== 1 && "s"}){loadingImages && <span className="text-mtg-text-muted ml-2 text-[10px] animate-pulse">Loading card images...</span>}</SectionLabel><VisualCardStack stack={gs.stack} gs={gs} /></div>
+
+      {/* Board Setup */}
+      <div>
+        <SectionLabel>Battlefield (Board State)</SectionLabel>
+        {gs.playerOrder.map((pid) => <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} />)}
+        <AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} />
+      </div>
+
+      {/* Stack */}
+      <div>
+        <SectionLabel>The Stack ({gs.stack.length} item{gs.stack.length !== 1 && "s"})</SectionLabel>
+        <VisualCardStack stack={gs.stack} gs={gs} />
+      </div>
+
+      {/* Actions */}
       <div className="space-y-2">
-        <AddSpellOrAbilityForm gs={gs} onCast={(item) => dispatch({ type: "cast_spell", spell: item })} />
-        {gs.stack.length > 0 && <Button onClick={handleResolve} className="w-full" variant="primary">{"\u25B6"} Review &amp; Resolve Stack ({gs.stack.length} item{gs.stack.length !== 1 ? "s" : ""})</Button>}
+        <AddSpellOrAbilityForm gs={gs} onCast={handleCast} />
+        {gs.stack.length > 0 && (
+          <Button onClick={handleResolve} className="w-full" variant="primary">
+            {"\u25B6"} Review &amp; Resolve Stack ({gs.stack.length} item{gs.stack.length !== 1 ? "s" : ""})
+          </Button>
+        )}
         {gs.stack.length === 0 && (
-          <div className="space-y-2">
-            <Button variant="ghost" onClick={() => dispatch({ type: "advance_phase" })} className="w-full" size="sm">Next Phase &rarr;</Button>
-            <div className="flex gap-1.5 flex-wrap">
-              {gs.playerOrder.map((pid) => (
-                <button key={pid} onClick={() => dispatch({ type: "draw_card", player: pid })}
-                  className="flex-1 px-2 py-1.5 text-[11px] font-display text-mtg-text-dim border border-mtg-border rounded-lg hover:border-mtg-gold/50 hover:text-mtg-gold transition-colors">
-                  {pLabel(gs, pid)} draws
-                </button>
-              ))}
-            </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {gs.playerOrder.map((pid) => (
+              <button key={pid} onClick={() => dispatch({ type: "draw_card", player: pid })}
+                className="flex-1 px-2 py-1.5 text-xs font-display text-mtg-text-dim border border-mtg-border rounded-lg hover:border-mtg-gold/50 hover:text-mtg-gold transition-colors min-w-[80px]">
+                {pLabel(gs, pid)} draws
+              </button>
+            ))}
           </div>
         )}
       </div>
-      {gs.actionLog.length > 0 && <div><SectionLabel>Log</SectionLabel><Card className="!p-2"><ActionLog log={gs.actionLog} logEndRef={logEndRef} /></Card></div>}
-      {gs.playerOrder.some((pid) => (gs.graveyards[pid]?.length || 0) > 0) && (
-        <div><SectionLabel>Graveyards</SectionLabel><div className="grid grid-cols-2 gap-2">{gs.playerOrder.map((pid) => <div key={pid} className="text-[11px] text-mtg-text-dim"><span className="font-bold">{pLabel(gs, pid)}:</span> {(gs.graveyards[pid]?.length || 0) === 0 ? "Empty" : gs.graveyards[pid]!.join(", ")}</div>)}</div></div>
+
+      {/* Log */}
+      {gs.actionLog.length > 0 && (
+        <div>
+          <SectionLabel>Game Log</SectionLabel>
+          <Card className="!p-2"><ActionLog log={gs.actionLog} logEndRef={logEndRef} /></Card>
+        </div>
       )}
+
+      {/* Graveyards */}
+      {gs.playerOrder.some(pid => (gs.graveyards[pid]?.length || 0) > 0) && (
+        <div>
+          <SectionLabel>Graveyards</SectionLabel>
+          <div className="grid grid-cols-2 gap-2">
+            {gs.playerOrder.map(pid => (
+              <div key={pid} className="text-xs text-mtg-text-dim"><span className="font-bold">{pLabel(gs, pid)}:</span> {(gs.graveyards[pid]?.length || 0) === 0 ? "Empty" : gs.graveyards[pid]!.join(", ")}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Resolution Modal */}
       <AnimatePresence>{resSteps && <ResolutionModal steps={resSteps} onClose={() => setResSteps(null)} gs={gs} />}</AnimatePresence>
     </div>
   );
