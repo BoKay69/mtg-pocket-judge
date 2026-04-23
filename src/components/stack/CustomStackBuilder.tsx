@@ -104,7 +104,7 @@ export function CustomStackBuilder() {
               onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
               onKeyDown={(e) => e.key === "Enter" && addItem()}
               placeholder="Card or ability name..."
-              className="w-full px-3.5 py-2.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 transition-colors placeholder:text-mtg-text-muted"
+              className="w-full px-3.5 py-2.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-body outline-none focus:border-mtg-gold/50 transition-colors placeholder:text-mtg-text-muted"
             />
 
             {/* Autocomplete dropdown */}
@@ -160,7 +160,7 @@ export function CustomStackBuilder() {
             value={newTarget}
             onChange={(e) => setNewTarget(e.target.value)}
             placeholder="Target (optional)"
-            className="px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-xs font-display outline-none placeholder:text-mtg-text-muted"
+            className="px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-xs font-body outline-none placeholder:text-mtg-text-muted"
           />
 
           <Button onClick={() => addItem()} size="sm">

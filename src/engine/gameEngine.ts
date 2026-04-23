@@ -327,6 +327,98 @@ function handlePassPriority(state: GameState): GameState {
   }
 }
 
+// ─── Draw Effect Parser ───────────────────────────────────────────────────────
+
+function parseDrawsFromEffect(
+  effect: string,
+  state: GameState,
+  resolver: PlayerId
+): Array<{ player: PlayerId; count: number }> {
+  if (!effect) return [];
+  const lower = effect.toLowerCase();
+  if (!lower.includes("draw") || !lower.includes("card")) return [];
+
+  function countCards(s: string): number {
+    const numWords: Record<string, number> = {
+      a: 1, an: 1, one: 1, two: 2, three: 3, four: 4,
+      five: 5, six: 6, seven: 7, eight: 8, x: 1,
+    };
+    const m = s.match(/draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|x)\s+card/i);
+    if (!m) return 1;
+    const n = parseInt(m[1]);
+    return isNaN(n) ? (numWords[m[1].toLowerCase()] ?? 1) : n;
+  }
+
+  const draws: Array<{ player: PlayerId; count: number }> = [];
+
+  if (lower.includes("each player draw")) {
+    const count = countCards(lower);
+    for (const pid of state.playerOrder) draws.push({ player: pid, count });
+    return draws;
+  }
+
+  if (lower.includes("each opponent draw") || /opponents?\s+draw/.test(lower)) {
+    const count = countCards(lower);
+    for (const pid of state.playerOrder) {
+      if (pid !== resolver) draws.push({ player: pid, count });
+    }
+    return draws;
+  }
+
+  // Can't resolve "target player draws" without knowing who was targeted
+  if (lower.includes("target player draw") || lower.includes("target opponent draw")) {
+    return draws;
+  }
+
+  // Controller draws (handles "draw X cards", "you draw a card", etc.)
+  const count = countCards(lower);
+  if (count > 0) draws.push({ player: resolver, count });
+  return draws;
+}
+
+// ─── Counter Effect Helpers ───────────────────────────────────────────────────
+
+function isCounterspell(effect: string): boolean {
+  return /counter target/i.test(effect || "");
+}
+
+function applyCounterEffect(state: GameState, item: EngineStackItem): void {
+  if (item.targets.length === 0) return;
+
+  const targetName = item.targets[0].name.toLowerCase();
+  const targetIdx = state.stack.findIndex(
+    (s) =>
+      s.name.toLowerCase() === targetName ||
+      s.name.toLowerCase().includes(targetName) ||
+      targetName.includes(s.name.toLowerCase())
+  );
+
+  if (targetIdx === -1) {
+    addLog(state, "explanation", undefined,
+      `${item.name} finds no target on the stack.`,
+      "The target spell or ability may have already resolved or been removed."
+    );
+    return;
+  }
+
+  const countered = state.stack.splice(targetIdx, 1)[0];
+
+  if (countered.type === "spell") {
+    const gyard = state.graveyards[countered.controller];
+    if (gyard) gyard.push(countered.name);
+  }
+
+  addLog(state, "counter", item.controller,
+    `${countered.name} is countered`,
+    `${item.name} counters ${countered.name}. ${
+      countered.type === "spell"
+        ? `${countered.name} is put into its owner's graveyard.`
+        : `${countered.name} is removed from the stack with no effect.`
+    }`,
+    true
+  );
+}
+
 // ─── Resolve Top of Stack ────────────────────────────────────────────────────
 
 function resolveTopOfStack(state: GameState): GameState {
@@ -389,10 +481,42 @@ function resolveTopOfStack(state: GameState): GameState {
     true
   );
 
+  // If this is a counterspell, remove its target from the stack
+  if (item.effect && isCounterspell(item.effect)) {
+    applyCounterEffect(state, item);
+  }
+
   // Handle resolution based on type
   if (item.type === "spell" && isPermamentSpell(item.spellType)) {
     // Creature/artifact/enchantment/planeswalker enters the battlefield
     handlePermanentEnters(state, item);
+  } else if (item.effect) {
+    // Fire draw_card events for spells/abilities that cause draws
+    const drawTargets = parseDrawsFromEffect(item.effect, state, item.controller);
+    for (const { player, count } of drawTargets) {
+      const playerObj = state.players[player];
+      if (!playerObj) continue;
+      for (let i = 0; i < count; i++) {
+        addLog(state, "game_event", player,
+          `${playerObj.label} draws a card`,
+          `Caused by ${item.name} resolving`,
+          true
+        );
+        const drawEvent: GameEvent = {
+          id: generateId(),
+          type: "draw_card",
+          timestamp: state.stepCount,
+          sourceController: player,
+          sourceName: playerObj.label,
+          data: { source: item.name },
+        };
+        state.eventLog.push(drawEvent);
+        const triggers = detectTriggers(state, drawEvent);
+        if (triggers.length > 0) {
+          placeTriggers(state, triggers, drawEvent);
+        }
+      }
+    }
   }
 
   // Clear split second if the resolving spell had it

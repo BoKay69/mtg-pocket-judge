@@ -30,8 +30,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        display: ["Crimson Text", "Georgia", "serif"],
-        body: ["Crimson Text", "Georgia", "serif"],
+        display: ["var(--font-cinzel)", "Georgia", "serif"],
+        body: ["var(--font-spectral)", "Georgia", "serif"],
       },
       animation: {
         "slide-in": "slideIn 0.3s ease forwards",

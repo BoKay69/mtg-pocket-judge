@@ -10,14 +10,19 @@ export function AppHeader() {
   return (
     <header className="px-5 pt-6 pb-5 bg-gradient-to-b from-mtg-surface to-mtg-bg border-b border-mtg-border">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-mtg-gold to-mtg-gold-dim text-xl shadow-lg shadow-mtg-gold/20">
-          ⚖
+        <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 animate-glow">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.jpg"
+            alt="MTG Pocket Judge"
+            className="w-full h-full object-cover"
+          />
         </div>
         <div>
-          <h1 className="text-2xl font-display font-bold text-mtg-text tracking-tight leading-none">
+          <h1 className="font-display font-black text-mtg-text tracking-wide leading-none whitespace-nowrap" style={{ fontSize: 19 }}>
             MTG: Pocket Judge
           </h1>
-          <p className="text-[11px] text-mtg-text-muted tracking-widest uppercase mt-1">
+          <p className="font-display text-[9px] text-mtg-text-muted tracking-[3px] uppercase mt-1.5">
             Stack · Rules · Rulings
           </p>
         </div>
@@ -48,7 +53,7 @@ export function TabBar({ tabs, active, onChange }: TabBarProps) {
           key={tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            "flex-1 py-2.5 px-2 rounded-lg font-display text-sm font-medium transition-all duration-200",
+            "flex-1 py-2.5 px-2 rounded-lg font-display text-[11px] font-medium transition-all duration-200",
             active === tab.id
               ? "bg-mtg-gold text-mtg-bg font-bold"
               : "text-mtg-text-dim hover:text-mtg-text"

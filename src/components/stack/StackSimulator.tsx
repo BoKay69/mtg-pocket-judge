@@ -297,7 +297,7 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
       <SectionLabel>Add permanent already in play (not being cast)</SectionLabel>
       <div className="space-y-2">
         <div className="relative">
-          <input value={query} onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); clearCard(); }} onFocus={() => suggestions.length > 0 && setShowSuggestions(true)} placeholder="Search card name..." className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); clearCard(); }} onFocus={() => suggestions.length > 0 && setShowSuggestions(true)} placeholder="Search card name..." className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-body outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
           {cardLoading && <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-mtg-text-muted animate-pulse">Fetching...</div>}
           <AnimatePresence>{showSuggestions && suggestions.length > 0 && !card && (
             <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute z-50 top-full mt-1 left-0 right-0 bg-mtg-surface border border-mtg-border rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto">
@@ -372,7 +372,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
         <div className="relative">
           <input value={query} onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true); clearCard(); setTargetError(""); setSelectedAbility(null); }}
             onFocus={() => suggestions.length > 0 && setShowSuggestions(true)} placeholder={mode === "spell" ? "Search card name..." : "Search permanent with ability..."}
-            className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
+            className="w-full px-3 py-2 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm font-body outline-none focus:border-mtg-gold/50 placeholder:text-mtg-text-muted" />
           {cardLoading && <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-mtg-text-muted animate-pulse">Fetching...</div>}
           <AnimatePresence>{showSuggestions && suggestions.length > 0 && !card && (
             <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute z-50 top-full mt-1 left-0 right-0 bg-mtg-surface border border-mtg-border rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto">
@@ -408,7 +408,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
           <div>
             <input value={target} onChange={(e) => { setTarget(e.target.value); setTargetError(""); }}
               placeholder={targetReq?.required ? `\u{1F3AF} ${targetReq.description} (required)` : selectedAbility?.requiresTarget ? `\u{1F3AF} ${selectedAbility.targetDescription} (required)` : "Target (optional)"}
-              className={cn("w-full px-3 py-1.5 bg-mtg-surface border rounded-lg text-mtg-text text-sm font-display outline-none placeholder:text-mtg-text-muted", targetError ? "border-red-500" : (targetReq?.required || selectedAbility?.requiresTarget) ? "border-amber-600/50" : "border-mtg-border")} />
+              className={cn("w-full px-3 py-1.5 bg-mtg-surface border rounded-lg text-mtg-text text-sm font-body outline-none placeholder:text-mtg-text-muted", targetError ? "border-red-500" : (targetReq?.required || selectedAbility?.requiresTarget) ? "border-amber-600/50" : "border-mtg-border")} />
             {targetError && <div className="text-[10px] text-red-400 mt-1">{targetError}</div>}
           </div>
         )}
@@ -474,11 +474,22 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
   while (state.stack.length > 0 && safety < 100) {
     safety++;
     const topItem = { ...state.stack[state.stack.length - 1] };
+    const topId = topItem.id;
     const logBefore = state.actionLog.length;
-    const stackBefore = state.stack.length;
     let inner = 0;
-    while (state.stack.length >= stackBefore && inner < 50) { inner++; state = processAction(state, { type: "pass_priority" }); }
-    steps.push({ item: topItem, logEntries: state.actionLog.slice(logBefore), status: state.actionLog.slice(logBefore).some(e => e.type === "fizzle") ? "fizzled" : "resolved" });
+    // Pass priority until the specific top item leaves the stack (resolved, countered, or fizzled)
+    while (state.stack.some((s) => s.id === topId) && inner < 50) {
+      inner++;
+      state = processAction(state, { type: "pass_priority" });
+    }
+    const logSlice = state.actionLog.slice(logBefore);
+    const didFizzle = logSlice.some((e) => e.type === "fizzle");
+    const wasCountered = logSlice.some((e) => e.type === "counter" && e.text.includes(topItem.name));
+    steps.push({
+      item: topItem,
+      logEntries: logSlice,
+      status: didFizzle || wasCountered ? "fizzled" : "resolved",
+    });
   }
   return { steps, finalState: state };
 }

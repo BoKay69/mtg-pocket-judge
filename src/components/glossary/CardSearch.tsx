@@ -80,7 +80,7 @@ export function CardSearch({ format }: CardSearchProps) {
           onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
           onKeyDown={(e) => e.key === "Enter" && query.trim() && fetchCard(query)}
           placeholder="Search for a card..."
-          className="w-full px-4 py-3 pl-10 bg-mtg-surface border border-mtg-border rounded-xl text-mtg-text text-sm font-display outline-none focus:border-mtg-gold/50 transition-colors placeholder:text-mtg-text-muted"
+          className="w-full px-4 py-3 pl-10 bg-mtg-surface border border-mtg-border rounded-xl text-mtg-text text-sm font-body outline-none focus:border-mtg-gold/50 transition-colors placeholder:text-mtg-text-muted"
         />
         <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-mtg-text-muted text-base">
           ⌕

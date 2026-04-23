@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url("https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&display=swap");
-
 * {
   box-sizing: border-box;
   margin: 0;
@@ -17,7 +15,7 @@ html {
 body {
   background: #0a0a0c;
   color: #e8e6e3;
-  font-family: "Crimson Text", Georgia, serif;
+  font-family: var(--font-spectral), Georgia, serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

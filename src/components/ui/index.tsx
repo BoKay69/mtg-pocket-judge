@@ -76,7 +76,7 @@ export function Badge({ children, color, className }: BadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold",
+        "font-display inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold",
         className
       )}
       style={{
@@ -101,7 +101,7 @@ export function SectionLabel({
   return (
     <div
       className={cn(
-        "text-[10px] uppercase tracking-[2px] text-mtg-text-muted font-bold mb-3",
+        "font-display text-[9px] uppercase tracking-[2.5px] text-mtg-text-muted font-bold mb-2.5",
         className
       )}
     >
