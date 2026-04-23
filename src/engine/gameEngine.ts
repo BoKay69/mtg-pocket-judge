@@ -14,7 +14,7 @@ import {
   PRIORITY_STEPS,
   STEP_LABELS,
 } from "./types";
-import { detectTriggers, createTriggerLogEntry } from "./triggers";
+import { detectTriggers, createTriggerLogEntry, parseTriggersFromOracle } from "./triggers";
 import { generateId, getOpponent } from "./utils";
 
 // ─── Initial State Factory ───────────────────────────────────────────────────
@@ -207,7 +207,11 @@ function handleCastSpell(
       sourceId: stackItem.id,
       sourceName: spell.name,
       sourceController: spell.controller,
-      data: { spellType: spell.spellType },
+      data: {
+        spellType: spell.spellType,
+        xValue: spell.xValue,
+        hasXCost: spell.hasXCost,
+      },
     };
     state.eventLog.push(castEvent);
 
@@ -327,26 +331,34 @@ function handlePassPriority(state: GameState): GameState {
   }
 }
 
-// ─── Draw Effect Parser ───────────────────────────────────────────────────────
+// ─── Effect Parsers ───────────────────────────────────────────────────────────
+
+/** Resolve a word-or-digit count, substituting X with xValue when present. */
+function resolveCount(raw: string, xValue?: number): number {
+  const numWords: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4,
+    five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  const lower = raw.toLowerCase();
+  if (lower === "x") return xValue ?? 1;
+  const n = parseInt(raw);
+  return isNaN(n) ? (numWords[lower] ?? 1) : n;
+}
 
 function parseDrawsFromEffect(
   effect: string,
   state: GameState,
-  resolver: PlayerId
+  resolver: PlayerId,
+  xValue?: number
 ): Array<{ player: PlayerId; count: number }> {
   if (!effect) return [];
   const lower = effect.toLowerCase();
   if (!lower.includes("draw") || !lower.includes("card")) return [];
 
   function countCards(s: string): number {
-    const numWords: Record<string, number> = {
-      a: 1, an: 1, one: 1, two: 2, three: 3, four: 4,
-      five: 5, six: 6, seven: 7, eight: 8, x: 1,
-    };
-    const m = s.match(/draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|x)\s+card/i);
+    const m = s.match(/draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|x)\s+card/i);
     if (!m) return 1;
-    const n = parseInt(m[1]);
-    return isNaN(n) ? (numWords[m[1].toLowerCase()] ?? 1) : n;
+    return resolveCount(m[1], xValue);
   }
 
   const draws: Array<{ player: PlayerId; count: number }> = [];
@@ -374,6 +386,72 @@ function parseDrawsFromEffect(
   const count = countCards(lower);
   if (count > 0) draws.push({ player: resolver, count });
   return draws;
+}
+
+// ─── Token / Damage / Life Parsers ───────────────────────────────────────────
+
+interface TokenResult {
+  count: number;
+  description: string; // e.g. "1/1 white Human creature tokens"
+}
+
+/**
+ * Detect token creation in an effect. Returns count + description, or null.
+ * Handles "create X tokens", "create three 1/1 Soldier tokens", "put a token onto the battlefield", etc.
+ */
+function parseTokensFromEffect(effect: string, xValue?: number): TokenResult | null {
+  if (!effect) return null;
+  const lower = effect.toLowerCase();
+  if (!lower.includes("token")) return null;
+
+  // Patterns: "create N <description> token(s)" or "put N <description> token(s)"
+  const tokenMatch = lower.match(
+    /(?:create|put)\s+(\d+|x|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+(.*?)\s*tokens?\b/i
+  );
+  if (!tokenMatch) return null;
+
+  const count = resolveCount(tokenMatch[1], xValue);
+  const description = tokenMatch[2].trim();
+  return { count, description: `${description} token${count !== 1 ? "s" : ""}` };
+}
+
+interface DamageResult {
+  amount: number;
+  targetType: string; // "any target", "each opponent", "target creature", etc.
+}
+
+/**
+ * Detect damage-dealing in an effect. Returns array of damage instances.
+ * Handles "deals X damage", "deal 3 damage", "X damage to each opponent", etc.
+ */
+function parseDamageFromEffect(effect: string, xValue?: number): DamageResult[] {
+  if (!effect) return [];
+  const lower = effect.toLowerCase();
+  if (!lower.includes("damage")) return [];
+
+  const results: DamageResult[] = [];
+  // Match "deal/deals N damage to <target>" or "N damage to <target>"
+  const regex = /deal[s]?\s+(\d+|x)\s+damage(?:\s+to\s+(any target|each opponent|each player|each creature|target [a-z\s]+?))?(?:[.,]|$)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(lower)) !== null) {
+    const amount = resolveCount(match[1], xValue);
+    const targetType = (match[2] || "target").trim();
+    results.push({ amount, targetType });
+  }
+  return results;
+}
+
+/**
+ * Detect life gain in an effect. Returns amount, or 0 if not found.
+ */
+function parseLifeGainFromEffect(effect: string, xValue?: number): number {
+  if (!effect) return 0;
+  const lower = effect.toLowerCase();
+  if (!lower.includes("gain") || !lower.includes("life")) return 0;
+
+  const m = lower.match(/gain\s+(\d+|x)\s+life/i);
+  if (!m) return 0;
+  return resolveCount(m[1], xValue);
 }
 
 // ─── Counter Effect Helpers ───────────────────────────────────────────────────
@@ -457,16 +535,16 @@ function resolveTopOfStack(state: GameState): GameState {
 
   // Build a human-readable description of what happens
   let description = "";
+  const xSuffix = item.xValue !== undefined ? ` (X = ${item.xValue})` : "";
   if (item.type === "spell" && isPermamentSpell(item.spellType)) {
     description = `${item.name} enters the battlefield under ${playerLabel}'s control.`;
   } else if (item.type === "triggered_ability") {
     description = item.effect || `${item.triggerSource || item.name}'s triggered ability resolves.`;
   } else if (item.type === "activated_ability") {
-    description = item.effect || `${item.name} resolves.`;
+    description = item.effect ? item.effect + xSuffix : `${item.name} resolves.`;
   } else if (item.effect) {
-    // Use the oracle text / effect for spells
     const effectPreview = item.effect.length > 200 ? item.effect.slice(0, 200) + "..." : item.effect;
-    description = effectPreview;
+    description = effectPreview + (item.hasXCost ? xSuffix : "");
   } else {
     description = `${item.name} resolves.`;
   }
@@ -491,8 +569,8 @@ function resolveTopOfStack(state: GameState): GameState {
     // Creature/artifact/enchantment/planeswalker enters the battlefield
     handlePermanentEnters(state, item);
   } else if (item.effect) {
-    // Fire draw_card events for spells/abilities that cause draws
-    const drawTargets = parseDrawsFromEffect(item.effect, state, item.controller);
+    // ── Draw effects ──────────────────────────────────────────────────────────
+    const drawTargets = parseDrawsFromEffect(item.effect, state, item.controller, item.xValue);
     for (const { player, count } of drawTargets) {
       const playerObj = state.players[player];
       if (!playerObj) continue;
@@ -511,10 +589,87 @@ function resolveTopOfStack(state: GameState): GameState {
           data: { source: item.name },
         };
         state.eventLog.push(drawEvent);
-        const triggers = detectTriggers(state, drawEvent);
-        if (triggers.length > 0) {
-          placeTriggers(state, triggers, drawEvent);
+        const drawTriggers = detectTriggers(state, drawEvent);
+        if (drawTriggers.length > 0) {
+          placeTriggers(state, drawTriggers, drawEvent);
         }
+      }
+    }
+
+    // ── Token creation effects ────────────────────────────────────────────────
+    const tokenResult = parseTokensFromEffect(item.effect, item.xValue);
+    if (tokenResult) {
+      const controller = state.players[item.controller]!;
+      addLog(state, "game_event", item.controller,
+        `${controller.label} creates ${tokenResult.count} ${tokenResult.description}`,
+        `Effect of ${item.name}`,
+        true
+      );
+      const tokensEvent: GameEvent = {
+        id: generateId(),
+        type: "tokens_created",
+        timestamp: state.stepCount,
+        sourceId: item.id,
+        sourceName: item.name,
+        sourceController: item.controller,
+        data: {
+          count: tokenResult.count,
+          tokenType: tokenResult.description,
+          xValue: item.xValue,
+        },
+      };
+      state.eventLog.push(tokensEvent);
+      const tokenTriggers = detectTriggers(state, tokensEvent);
+      if (tokenTriggers.length > 0) {
+        placeTriggers(state, tokenTriggers, tokensEvent);
+      }
+    }
+
+    // ── Damage effects ────────────────────────────────────────────────────────
+    const damageResults = parseDamageFromEffect(item.effect, item.xValue);
+    for (const dmg of damageResults) {
+      addLog(state, "game_event", item.controller,
+        `${item.name} deals ${dmg.amount} damage to ${dmg.targetType}`,
+        undefined,
+        true
+      );
+      const dmgEvent: GameEvent = {
+        id: generateId(),
+        type: "deals_damage",
+        timestamp: state.stepCount,
+        sourceId: item.id,
+        sourceName: item.name,
+        sourceController: item.controller,
+        data: { amount: dmg.amount, targetType: dmg.targetType },
+      };
+      state.eventLog.push(dmgEvent);
+      const dmgTriggers = detectTriggers(state, dmgEvent);
+      if (dmgTriggers.length > 0) {
+        placeTriggers(state, dmgTriggers, dmgEvent);
+      }
+    }
+
+    // ── Life gain effects ─────────────────────────────────────────────────────
+    const lifeGain = parseLifeGainFromEffect(item.effect, item.xValue);
+    if (lifeGain > 0) {
+      const player = state.players[item.controller]!;
+      player.life += lifeGain;
+      addLog(state, "game_event", item.controller,
+        `${player.label} gains ${lifeGain} life (now ${player.life})`,
+        `From ${item.name}`,
+        true
+      );
+      const lifeEvent: GameEvent = {
+        id: generateId(),
+        type: "life_gained",
+        timestamp: state.stepCount,
+        sourceController: item.controller,
+        data: { amount: lifeGain, source: item.name },
+      };
+      state.eventLog.push(lifeEvent);
+      const lifeTriggers = detectTriggers(state, lifeEvent);
+      if (lifeTriggers.length > 0) {
+        placeTriggers(state, lifeTriggers, lifeEvent);
       }
     }
   }
@@ -537,18 +692,27 @@ function handlePermanentEnters(
   state: GameState,
   item: EngineStackItem
 ): void {
+  const permId = generateId();
+
+  // Parse triggers from oracle text so the permanent has its own triggered abilities
+  const triggers = item.effect
+    ? parseTriggersFromOracle(item.effect, permId, item.name, item.controller)
+    : [];
+
   const permanent: Permanent = {
-    id: generateId(),
+    id: permId,
     name: item.name,
     types: item.spellType ? [item.spellType as any] : [],
     controller: item.controller,
     owner: item.controller,
     damageMarked: 0,
     keywords: [],
-    triggers: [],
+    triggers,
     tapped: false,
     summoningSick: true,
     counters: {},
+    oracleText: item.effect,
+    imageUri: item.imageUri,
   };
 
   state.battlefield.push(permanent);
@@ -570,9 +734,9 @@ function handlePermanentEnters(
   state.eventLog.push(etbEvent);
 
   // Check ETB triggers
-  const triggers = detectTriggers(state, etbEvent);
-  if (triggers.length > 0) {
-    placeTriggers(state, triggers, etbEvent);
+  const etbTriggers = detectTriggers(state, etbEvent);
+  if (etbTriggers.length > 0) {
+    placeTriggers(state, etbTriggers, etbEvent);
   }
 }
 
@@ -666,7 +830,8 @@ function destroyPermanent(state: GameState, permanent: Permanent): void {
   state.battlefield = state.battlefield.filter((p) => p.id !== permanent.id);
 
   // Add to graveyard
-  state.graveyards[permanent.owner].push(permanent.name);
+  if (!state.graveyards[permanent.owner]) state.graveyards[permanent.owner] = [];
+  state.graveyards[permanent.owner]!.push(permanent.name);
 
   addLog(state, "state_based_action", undefined,
     `${permanent.name} dies`,
@@ -708,10 +873,25 @@ function placeTriggers(
       : undefined
   );
 
+  // Extract X context from the event — e.g., number of tokens created
+  let xContext: number | undefined;
+  if (event.type === "tokens_created" && typeof event.data?.count === "number") {
+    xContext = event.data.count as number;
+  } else if (event.type === "deals_damage" && typeof event.data?.amount === "number") {
+    xContext = event.data.amount as number;
+  } else if (event.type === "cast_spell" && typeof event.data?.xValue === "number") {
+    xContext = event.data.xValue as number;
+  }
+
   for (const trigger of triggers) {
-    // Find the source permanent to get its image
     const sourcePerm = state.battlefield.find((p) => p.id === trigger.sourceId)
       || state.battlefield.find((p) => p.name === trigger.sourceName);
+
+    // Build effect text — substitute X context if available
+    const effectWithX =
+      xContext !== undefined && trigger.effect.toLowerCase().includes("x")
+        ? `${trigger.effect} (X = ${xContext})`
+        : trigger.effect;
 
     const stackItem: EngineStackItem = {
       id: generateId(),
@@ -721,27 +901,40 @@ function placeTriggers(
       targets: [],
       triggerSource: trigger.sourceName,
       triggerEvent: trigger.event,
-      effect: trigger.effect,
+      effect: effectWithX,
       isManaAbility: false,
       hasSplitSecond: false,
       timestamp: state.stepCount,
       imageUri: sourcePerm?.imageUri,
+      xValue: xContext, // pass X context so resolution can use it
     };
 
     state.stack.push(stackItem);
 
     const causeLabel =
-      event.type === "cast_spell" ? `caused by ${event.sourceName || "a spell"} being cast` :
-      event.type === "enters_battlefield" ? `caused by ${event.sourceName || "a permanent"} entering the battlefield` :
-      event.type === "dies" ? `caused by ${event.sourceName || "a permanent"} dying` :
-      event.type === "draw_card" ? `caused by a card being drawn` :
-      event.type === "deals_damage" ? `caused by damage being dealt` :
-      event.type === "beginning_of_phase" ? `triggered at beginning of step` :
-      `triggered by ${event.type}`;
+      event.type === "cast_spell"
+        ? `caused by ${event.sourceName || "a spell"} being cast${xContext !== undefined ? ` (X = ${xContext})` : ""}`
+      : event.type === "tokens_created"
+        ? `caused by ${event.data?.count ?? "tokens"} token${(event.data?.count as number) !== 1 ? "s" : ""} being created by ${event.sourceName || "an effect"}`
+      : event.type === "enters_battlefield"
+        ? `caused by ${event.sourceName || "a permanent"} entering the battlefield`
+      : event.type === "dies"
+        ? `caused by ${event.sourceName || "a permanent"} dying`
+      : event.type === "draw_card"
+        ? `caused by a card being drawn`
+      : event.type === "deals_damage"
+        ? `caused by ${event.sourceName || "a source"} dealing ${event.data?.amount ?? ""} damage`
+      : event.type === "beginning_of_phase"
+        ? `triggered at beginning of ${(event.data?.step as string) || "step"}`
+      : event.type === "end_of_phase"
+        ? `triggered at end of ${(event.data?.step as string) || "step"}`
+      : event.type === "life_gained"
+        ? `caused by life being gained`
+      : `triggered by ${event.type}`;
 
     addLog(state, "trigger", trigger.controller,
       `${trigger.sourceName}'s ability triggers`,
-      `Condition: ${trigger.condition || "Triggered"}\nEffect: ${trigger.effect}\nCause: ${causeLabel}`,
+      `Condition: ${trigger.condition || "Triggered"}\nEffect: ${effectWithX}\nCause: ${causeLabel}`,
       true
     );
   }
@@ -874,9 +1067,15 @@ function handleAddPermanent(
   state: GameState,
   permanent: Omit<Permanent, "id">
 ): GameState {
+  const realId = generateId();
   const newPerm: Permanent = {
     ...permanent,
-    id: generateId(),
+    id: realId,
+    // Fix trigger sourceIds that were set to "pending" by cardToPermanent
+    triggers: permanent.triggers.map((t) => ({
+      ...t,
+      sourceId: t.sourceId === "pending" ? realId : t.sourceId,
+    })),
   };
   state.battlefield.push(newPerm);
   addLog(state, "game_event", permanent.controller,

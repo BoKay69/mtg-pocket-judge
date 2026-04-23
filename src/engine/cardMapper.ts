@@ -134,9 +134,14 @@ export function cardToPermanent(
 export function cardToStackItem(
   card: ScryfallCard,
   controller: PlayerId,
-  targets: EngineStackItem["targets"] = []
+  targets: EngineStackItem["targets"] = [],
+  xValue?: number
 ): Omit<EngineStackItem, "id" | "timestamp"> {
   const spellType = extractSpellType(card.type_line);
+  const hasXCost =
+    (card.mana_cost || "").toUpperCase().includes("{X}") ||
+    // Some cards have X in activated/modal costs described in oracle text
+    /\{x\}/i.test(card.oracle_text || "");
 
   return {
     type: "spell",
@@ -148,6 +153,8 @@ export function cardToStackItem(
     isManaAbility: false,
     hasSplitSecond: hasSplitSecond(card),
     imageUri: card.image_uris?.normal || card.image_uris?.small,
+    hasXCost,
+    xValue: hasXCost ? xValue : undefined,
   };
 }
 
@@ -371,8 +378,10 @@ export function abilityToStackItem(
   card: ScryfallCard,
   ability: ActivatedAbilityInfo,
   controller: PlayerId,
-  targets: EngineStackItem["targets"] = []
+  targets: EngineStackItem["targets"] = [],
+  xValue?: number
 ): Omit<EngineStackItem, "id" | "timestamp"> {
+  const hasXCost = ability.cost.toUpperCase().includes("{X}");
   return {
     type: "activated_ability",
     name: `${card.name}: ${ability.cost}`,
@@ -382,5 +391,7 @@ export function abilityToStackItem(
     isManaAbility: false,
     hasSplitSecond: false,
     imageUri: card.image_uris?.normal || card.image_uris?.small,
+    hasXCost,
+    xValue: hasXCost ? xValue : undefined,
   };
 }

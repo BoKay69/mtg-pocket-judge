@@ -122,7 +122,8 @@ export type TriggerEvent =
   | "untapped"
   | "targeted"
   | "draw_card"
-  | "discard";
+  | "discard"
+  | "tokens_created";
 
 export interface TriggerDefinition {
   id: string;
@@ -193,6 +194,8 @@ export interface EngineStackItem {
   hasSplitSecond: boolean;
   timestamp: number; // For ordering
   imageUri?: string; // Scryfall card image
+  hasXCost?: boolean; // True if this spell/ability has {X} in its cost
+  xValue?: number; // The chosen value of X (for X spells) or inherited context (for X-based triggers)
 }
 
 export interface StackTarget {

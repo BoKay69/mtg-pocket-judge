@@ -142,6 +142,7 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
               </div>
             </div>
             {/* Top item = last cast = resolves FIRST */}
+                {item.xValue !== undefined ? ` \u00B7 X=${item.xValue}` : ""}
             {i === 0 && (
               <div className="absolute -top-2 -right-2 z-10">
                 <Badge color="#22c55e">&#8593; Resolves First</Badge>
@@ -327,6 +328,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
   const [target, setTarget] = useState("");
   const [targetError, setTargetError] = useState("");
   const [selectedAbility, setSelectedAbility] = useState<ActivatedAbilityInfo | null>(null);
+  const [xValue, setXValue] = useState<number>(1);
 
   const { query, setQuery, suggestions } = useCardAutocomplete();
   const { card, loading: cardLoading, fetchCard, clearCard } = useCardFetch();
@@ -335,23 +337,35 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
   const targetReq = mode === "spell" && card ? detectTargetRequirement(card) : null;
   const abilities = mode === "ability" && card ? parseActivatedAbilities(card) : [];
 
+  // Detect whether selected spell/ability has an X cost
+  const spellHasX = mode === "spell" && card
+    ? (card.mana_cost || "").toUpperCase().includes("{X}") || /\{x\}/i.test(card.oracle_text || "")
+    : false;
+  const abilityHasX = mode === "ability" && selectedAbility
+    ? selectedAbility.cost.toUpperCase().includes("{X}")
+    : false;
+  const showXInput = spellHasX || abilityHasX;
+
   useEffect(() => {
     if (mode === "ability" && abilities.length === 1 && !selectedAbility) setSelectedAbility(abilities[0]);
   }, [abilities.length, mode, selectedAbility]);
 
-  const resetForm = () => { setShowForm(false); clearCard(); setQuery(""); setTargetError(""); setSelectedAbility(null); setTarget(""); };
+  const resetForm = () => {
+    setShowForm(false); clearCard(); setQuery(""); setTargetError("");
+    setSelectedAbility(null); setTarget(""); setXValue(1);
+  };
 
   const handleCast = () => {
     if (mode === "spell") {
       if (!card) return;
       if (targetReq?.required && !target.trim()) { setTargetError(`Required: ${targetReq.description}`); return; }
       const targets = target.trim() ? [{ type: "permanent" as const, id: generateId(), name: target.trim(), isLegal: true }] : [];
-      onCast(cardToStackItem(card, controller, targets));
+      onCast(cardToStackItem(card, controller, targets, showXInput ? xValue : undefined));
     } else {
       if (!card || !selectedAbility) return;
       if (selectedAbility.requiresTarget && !target.trim()) { setTargetError(`Required: ${selectedAbility.targetDescription || "a target"}`); return; }
       const targets = target.trim() ? [{ type: "permanent" as const, id: generateId(), name: target.trim(), isLegal: true }] : [];
-      onCast(abilityToStackItem(card, selectedAbility, controller, targets));
+      onCast(abilityToStackItem(card, selectedAbility, controller, targets, showXInput ? xValue : undefined));
     }
     resetForm();
   };
@@ -404,6 +418,21 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
         <select value={controller} onChange={(e) => setController(e.target.value as PlayerId)} className="w-full px-2.5 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm outline-none">
           {gs.playerOrder.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
         </select>
+        {/* X cost input \u2014 shown when the spell/ability has {X} in its cost */}
+        {showXInput && (
+          <div className="flex items-center gap-2 px-2.5 py-2 bg-purple-900/20 border border-purple-500/40 rounded-lg">
+            <span className="text-xs font-display font-bold text-purple-300 flex-shrink-0">Choose X</span>
+            <input
+              type="number"
+              min={0}
+              max={99}
+              value={xValue}
+              onChange={(e) => setXValue(Math.max(0, parseInt(e.target.value) || 0))}
+              className="w-16 px-2 py-1 bg-mtg-surface border border-purple-500/50 rounded text-mtg-text text-sm font-bold text-center outline-none focus:border-purple-400"
+            />
+            <span className="text-[10px] text-purple-300/70">X = {xValue}</span>
+          </div>
+        )}
         {card && (mode === "spell" || selectedAbility) && (
           <div>
             <input value={target} onChange={(e) => { setTarget(e.target.value); setTargetError(""); }}
@@ -414,7 +443,9 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
         )}
         <div className="flex gap-2">
           <Button onClick={handleCast} className="flex-1" size="sm" disabled={mode === "spell" ? !card : (!card || !selectedAbility)}>
-            {mode === "spell" ? (card ? `Cast ${card.name}` : "Select a card") : (selectedAbility ? `Activate` : "Select an ability")}
+            {mode === "spell"
+              ? (card ? `Cast ${card.name}${showXInput ? ` (X=${xValue})` : ""}` : "Select a card")
+              : (selectedAbility ? `Activate${showXInput ? ` (X=${xValue})` : ""}` : "Select an ability")}
           </Button>
           <Button variant="ghost" onClick={resetForm} size="sm">Cancel</Button>
         </div>
@@ -534,7 +565,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
     setGs(prev => {
       const next = { ...JSON.parse(JSON.stringify(prev)) as GameState };
       next.activePlayer = pid;
-      next.priorityHolder = pid;
+      next.priority.priorityHolder = pid;
       next.actionLog.push({ id: generateId(), timestamp: next.stepCount++, type: "phase_change", text: `Active player set to: ${pLabel(next, pid)}`, highlight: true });
       return next;
     });
