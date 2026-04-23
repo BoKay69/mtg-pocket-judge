@@ -530,6 +530,16 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
     });
   };
 
+  const handleTurnChange = (pid: PlayerId) => {
+    setGs(prev => {
+      const next = { ...JSON.parse(JSON.stringify(prev)) as GameState };
+      next.activePlayer = pid;
+      next.priorityHolder = pid;
+      next.actionLog.push({ id: generateId(), timestamp: next.stepCount++, type: "phase_change", text: `Active player set to: ${pLabel(next, pid)}`, highlight: true });
+      return next;
+    });
+  };
+
   const handleResolve = () => {
     if (gs.stack.length === 0) return;
     const { steps, finalState } = buildResolutionSteps(gs);
@@ -565,20 +575,37 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
       <ScenarioDropdown onSelect={(p) => { setPreset(p); setGs(loadPreset(p, format)); }} />
       {preset && <LessonBanner preset={preset} />}
 
-      {/* ── Step 1: Game Phase ────────────────────────────────────── */}
+      {/* ── Step 1: Turn & Phase ─────────────────────────────────── */}
       <Card className="!p-3">
-        <SectionLabel className="!mb-2">① Select Game Phase</SectionLabel>
-        <select
-          value={gs.currentStep}
-          onChange={(e) => handlePhaseChange(e.target.value as TurnStep)}
-          className="w-full px-3 py-2 bg-mtg-surface border border-mtg-gold/50 rounded-lg text-sm font-display font-bold text-mtg-gold outline-none cursor-pointer"
-        >
-          {PHASE_OPTIONS.map((p) => (
-            <option key={p.value} value={p.value}>{p.label}</option>
-          ))}
-        </select>
+        <SectionLabel className="!mb-2">① Select Turn &amp; Phase</SectionLabel>
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <div className="text-[10px] text-mtg-text-muted mb-1 font-semibold uppercase tracking-wider">Active Player</div>
+            <select
+              value={gs.activePlayer}
+              onChange={(e) => handleTurnChange(e.target.value as PlayerId)}
+              className="w-full px-3 py-2 bg-mtg-surface border border-mtg-gold/50 rounded-lg text-sm font-display font-bold text-mtg-gold outline-none cursor-pointer"
+            >
+              {gs.playerOrder.map((pid) => (
+                <option key={pid} value={pid}>{pLabel(gs, pid)}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex-1">
+            <div className="text-[10px] text-mtg-text-muted mb-1 font-semibold uppercase tracking-wider">Game Phase</div>
+            <select
+              value={gs.currentStep}
+              onChange={(e) => handlePhaseChange(e.target.value as TurnStep)}
+              className="w-full px-3 py-2 bg-mtg-surface border border-mtg-gold/50 rounded-lg text-sm font-display font-bold text-mtg-gold outline-none cursor-pointer"
+            >
+              {PHASE_OPTIONS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="text-[10px] text-mtg-text-muted mt-1.5">
-          Select the phase <span className="text-mtg-text-dim font-semibold">before</span> setting up the board or building the stack
+          Select turn and phase <span className="text-mtg-text-dim font-semibold">before</span> setting up the board or building the stack
         </div>
       </Card>
 
