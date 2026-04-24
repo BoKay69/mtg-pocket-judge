@@ -52,6 +52,7 @@ function extractSpellType(typeLine: string): SpellType {
   if (lower.includes("artifact")) return "artifact";
   if (lower.includes("enchantment")) return "enchantment";
   if (lower.includes("planeswalker")) return "planeswalker";
+  if (lower.includes("land")) return "land";
   return "instant"; // fallback
 }
 

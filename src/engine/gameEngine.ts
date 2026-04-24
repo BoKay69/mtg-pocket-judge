@@ -623,6 +623,30 @@ function resolveTopOfStack(state: GameState): GameState {
       if (tokenTriggers.length > 0) {
         placeTriggers(state, tokenTriggers, tokensEvent);
       }
+
+      // Land tokens entering the battlefield each trigger Landfall and other ETB effects.
+      // MTG rules: each land entering is a separate event, so fire one ETB per token.
+      const tokenDescLower = tokenResult.description.toLowerCase();
+      if (tokenDescLower.includes("land")) {
+        for (let i = 0; i < tokenResult.count; i++) {
+          const landEtbEvent: GameEvent = {
+            id: generateId(),
+            type: "enters_battlefield",
+            timestamp: state.stepCount,
+            sourceController: item.controller,
+            sourceName: `${tokenResult.description} token`,
+            data: {
+              type: "land",
+              isToken: true,
+            },
+          };
+          state.eventLog.push(landEtbEvent);
+          const landEtbTriggers = detectTriggers(state, landEtbEvent);
+          if (landEtbTriggers.length > 0) {
+            placeTriggers(state, landEtbTriggers, landEtbEvent);
+          }
+        }
+      }
     }
 
     // ── Damage effects ────────────────────────────────────────────────────────
@@ -683,7 +707,7 @@ function resolveTopOfStack(state: GameState): GameState {
 }
 
 function isPermamentSpell(spellType?: string): boolean {
-  return ["creature", "artifact", "enchantment", "planeswalker"].includes(
+  return ["creature", "artifact", "enchantment", "planeswalker", "land"].includes(
     spellType || ""
   );
 }
@@ -1081,6 +1105,24 @@ function handleAddPermanent(
   addLog(state, "game_event", permanent.controller,
     `${permanent.name} added to the battlefield`
   );
+
+  // Fire ETB event so landfall and other ETB triggers fire when permanents enter
+  const primaryType = newPerm.types[0] as string | undefined;
+  const etbEvent: GameEvent = {
+    id: generateId(),
+    type: "enters_battlefield",
+    timestamp: state.stepCount,
+    sourceId: newPerm.id,
+    sourceName: newPerm.name,
+    sourceController: newPerm.controller,
+    data: { type: primaryType },
+  };
+  state.eventLog.push(etbEvent);
+  const etbTriggers = detectTriggers(state, etbEvent);
+  if (etbTriggers.length > 0) {
+    placeTriggers(state, etbTriggers, etbEvent);
+  }
+
   return state;
 }
 

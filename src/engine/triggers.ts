@@ -490,13 +490,36 @@ export function parseTriggersFromOracle(
 
     const lower = trimmed.toLowerCase();
 
-    // Must start with a trigger word
-    if (!lower.startsWith("when") && !lower.startsWith("at the") && !lower.startsWith("at end of")) continue;
+    // Resolve the actual trigger text — handles both plain trigger lines and
+    // keyword-ability format: "Landfall — Whenever ...", "Constellation — When ..."
+    let triggerText = trimmed;
+    let triggerLower = lower;
+
+    if (!lower.startsWith("when") && !lower.startsWith("at the") && !lower.startsWith("at end of")) {
+      // Look for em-dash separator used in keyword abilities (e.g. "Landfall — Whenever")
+      const emDashIdx = trimmed.indexOf("—");
+      if (emDashIdx !== -1) {
+        const afterDash = trimmed.slice(emDashIdx + 1).trim();
+        const afterDashLower = afterDash.toLowerCase();
+        if (
+          afterDashLower.startsWith("when") ||
+          afterDashLower.startsWith("at the") ||
+          afterDashLower.startsWith("at end of")
+        ) {
+          triggerText = afterDash;
+          triggerLower = afterDashLower;
+        } else {
+          continue;
+        }
+      } else {
+        continue;
+      }
+    }
 
     // Split into condition (before first comma) and effect (after)
-    const commaIdx = trimmed.indexOf(",");
-    const conditionPart = commaIdx !== -1 ? lower.slice(0, commaIdx) : lower;
-    const effectPart = commaIdx !== -1 ? trimmed.slice(commaIdx + 1).trim() : trimmed;
+    const commaIdx = triggerText.indexOf(",");
+    const conditionPart = commaIdx !== -1 ? triggerLower.slice(0, commaIdx) : triggerLower;
+    const effectPart = commaIdx !== -1 ? triggerText.slice(commaIdx + 1).trim() : triggerText;
 
     const event = classifyTriggerEvent(conditionPart);
     if (!event) continue;
@@ -557,11 +580,14 @@ function classifyTriggerEvent(conditionPart: string): TriggerEvent | null {
   }
 
   // ENTERS BATTLEFIELD
+  // Also handles modern WotC shorthand (post-2023): "whenever a land you control enters"
+  // where "the battlefield" is omitted from the trigger condition.
   if (
     c.includes("enters the battlefield") ||
     c.includes("enters under your control") ||
     c.includes("enters tapped") ||
-    c.includes("enters play")
+    c.includes("enters play") ||
+    /\benters[,.]?\s*$/.test(c.trim())
   ) {
     return "enters_battlefield";
   }

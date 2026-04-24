@@ -501,6 +501,7 @@ function LessonBanner({ preset }: { preset: ScenarioPreset }) {
 function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]; finalState: GameState } {
   const steps: ResolutionStep[] = [];
   let state = JSON.parse(JSON.stringify(beforeState)) as GameState;
+  const logsAtStart = state.actionLog.length;
   let safety = 0;
   while (state.stack.length > 0 && safety < 100) {
     safety++;
@@ -522,6 +523,83 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
       status: didFizzle || wasCountered ? "fizzled" : "resolved",
     });
   }
+
+  // ─── Post-resolution summary ────────────────────────────────────────────────
+  // After everything resolves, scan battlefield triggers against events that fired.
+  // This catches cases where triggers should have fired and shows what happened.
+  const newLogs = state.actionLog.slice(logsAtStart);
+  const triggerEntries = newLogs.filter(e => e.type === "trigger");
+  const resolvedEntries = newLogs.filter(e => e.type === "resolve");
+
+  const summaryLines: string[] = [];
+
+  const resolvedNames = resolvedEntries
+    .map(e => e.text.replace(" resolves", "").trim())
+    .filter(Boolean);
+  if (resolvedNames.length) {
+    summaryLines.push(`Resolution order (LIFO — last added resolves first):\n${resolvedNames.join(" → ")}`);
+  }
+
+  if (triggerEntries.length > 0) {
+    // Group triggers by source permanent
+    const bySource = new Map<string, typeof triggerEntries>();
+    for (const t of triggerEntries) {
+      const src = t.text.replace("'s ability triggers", "").trim();
+      if (!bySource.has(src)) bySource.set(src, []);
+      bySource.get(src)!.push(t);
+    }
+    summaryLines.push(`\nTriggers fired (${triggerEntries.length} total):`);
+    Array.from(bySource.entries()).forEach(([src, ts]) => {
+      const count = ts.length;
+      const lines = ts[0].detail?.split("\n") ?? [];
+      const causeLine = lines.find((l: string) => l.startsWith("Cause:")) ?? "";
+      const effectLine = lines.find((l: string) => l.startsWith("Effect:")) ?? "";
+      summaryLines.push(`⚡ ${src}${count > 1 ? ` ×${count}` : ""}`);
+      if (causeLine) summaryLines.push(`   ${causeLine}`);
+      if (effectLine) summaryLines.push(`   ${effectLine}`);
+    });
+  } else {
+    // No triggers fired — check if any battlefield permanents have landfall or ETB triggers
+    // that match lands entering the battlefield (from the resolved spells).
+    const landEnterCount = newLogs.filter(e =>
+      e.type === "game_event" &&
+      (e.text.toLowerCase().includes("land") || e.text.toLowerCase().includes("forest")) &&
+      (e.text.toLowerCase().includes("enter") || e.text.toLowerCase().includes("creat"))
+    ).length;
+
+    if (landEnterCount > 0) {
+      const landfallPerms = state.battlefield.filter(p =>
+        p.triggers.some(t =>
+          t.event === "enters_battlefield" &&
+          (t.condition ?? "").toLowerCase().includes("land")
+        )
+      );
+      if (landfallPerms.length > 0) {
+        summaryLines.push(`\n⚠️ Landfall check — ${landEnterCount} land event(s) detected:`);
+        for (const p of landfallPerms) {
+          const t = p.triggers.find(tr =>
+            tr.event === "enters_battlefield" &&
+            (tr.condition ?? "").toLowerCase().includes("land")
+          )!;
+          summaryLines.push(`• ${p.name} (landfall) — should have triggered`);
+          summaryLines.push(`  Condition: ${t.condition}`);
+          summaryLines.push(`  Effect: ${t.effect}`);
+        }
+      }
+    }
+  }
+
+  if (summaryLines.length > 1) {
+    state.actionLog.push({
+      id: generateId(),
+      timestamp: state.stepCount,
+      type: "explanation",
+      text: "Resolution Summary",
+      detail: summaryLines.join("\n"),
+      highlight: true,
+    });
+  }
+
   return { steps, finalState: state };
 }
 

@@ -178,7 +178,8 @@ export type SpellType =
   | "creature"
   | "artifact"
   | "enchantment"
-  | "planeswalker";
+  | "planeswalker"
+  | "land";
 
 export interface EngineStackItem {
   id: string;
