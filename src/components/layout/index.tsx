@@ -8,23 +8,26 @@ import { FORMATS } from "@/data/formats";
 
 export function AppHeader() {
   return (
-    <header className="px-5 pt-6 pb-5 bg-gradient-to-b from-mtg-surface to-mtg-bg border-b border-mtg-border">
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 animate-glow">
+    <header className="px-5 pt-10 pb-5 bg-gradient-to-b from-mtg-surface to-mtg-bg border-b border-mtg-border">
+      <div className="flex items-start gap-3">
+        <div className="w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 animate-glow -mt-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/logo.png"
+            src="/logo.svg"
             alt="MTG Pocket Judge"
             className="w-full h-full object-cover"
           />
         </div>
-        <div>
+        <div className="-mt-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/title.png"
             alt="Pocket Judge"
-            className="h-10 w-auto object-contain"
+            className="h-9 w-auto object-contain"
           />
+          <p className="text-[10px] text-mtg-text-dim font-display tracking-widest mt-0.5">
+            Simulate&nbsp;&nbsp;|&nbsp;&nbsp;Track Life&nbsp;&nbsp;|&nbsp;&nbsp;Learn
+          </p>
         </div>
       </div>
     </header>
