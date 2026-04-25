@@ -156,6 +156,8 @@ export function cardToStackItem(
     imageUri: card.image_uris?.normal || card.image_uris?.small,
     hasXCost,
     xValue: hasXCost ? xValue : undefined,
+    basePower: card.power !== undefined && card.power !== null ? (parseInt(card.power) || 0) : undefined,
+    baseToughness: card.toughness !== undefined && card.toughness !== null ? (parseInt(card.toughness) || 0) : undefined,
   };
 }
 

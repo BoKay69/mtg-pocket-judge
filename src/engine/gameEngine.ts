@@ -197,9 +197,11 @@ function handleCastSpell(
     );
   }
 
-  // Only fire cast_spell events for ACTUAL spells — not activated or triggered abilities
-  // Rhystic Study triggers on "whenever an opponent casts a spell" — activated abilities are NOT spells
+  // Fire cast_spell events for ALL spells (instant, sorcery, creature, artifact, etc.)
+  // Creatures ARE spells on the stack — Rhystic Study, Mystic Remora, etc. trigger on them.
+  // Only activated and triggered abilities are NOT spells.
   if (isActualSpell) {
+    const isPermanentSpell = isPermamentSpell(spell.spellType);
     const castEvent: GameEvent = {
       id: generateId(),
       type: "cast_spell",
@@ -211,6 +213,7 @@ function handleCastSpell(
         spellType: spell.spellType,
         xValue: spell.xValue,
         hasXCost: spell.hasXCost,
+        isPermanentSpell,
       },
     };
     state.eventLog.push(castEvent);
@@ -729,6 +732,10 @@ function handlePermanentEnters(
     types: item.spellType ? [item.spellType as any] : [],
     controller: item.controller,
     owner: item.controller,
+    basePower: item.basePower,
+    baseToughness: item.baseToughness,
+    currentPower: item.basePower,
+    currentToughness: item.baseToughness,
     damageMarked: 0,
     keywords: [],
     triggers,
@@ -826,18 +833,23 @@ function checkStateBasedActions(state: GameState): void {
     const toDestroy: Permanent[] = [];
     for (const perm of state.battlefield) {
       if (perm.types.includes("creature")) {
-        const toughness = perm.currentToughness ?? perm.baseToughness ?? 0;
+        const toughness = perm.currentToughness ?? perm.baseToughness;
 
-        // Lethal damage check
-        if (perm.damageMarked >= toughness && toughness > 0) {
-          if (!perm.keywords.includes("indestructible")) {
-            toDestroy.push(perm);
-          }
-        }
+        // Only run SBA checks when toughness is known — avoid false deaths for
+        // stack-resolved creatures whose stats weren't passed through.
+        if (toughness === undefined) continue;
 
         // 0 or less toughness
         if (toughness <= 0) {
           toDestroy.push(perm);
+          continue;
+        }
+
+        // Lethal damage check
+        if (perm.damageMarked >= toughness) {
+          if (!perm.keywords.includes("indestructible")) {
+            toDestroy.push(perm);
+          }
         }
       }
     }

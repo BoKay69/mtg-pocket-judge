@@ -528,8 +528,47 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
   // After everything resolves, scan battlefield triggers against events that fired.
   // This catches cases where triggers should have fired and shows what happened.
   const newLogs = state.actionLog.slice(logsAtStart);
-  const triggerEntries = newLogs.filter(e => e.type === "trigger");
   const resolvedEntries = newLogs.filter(e => e.type === "resolve");
+
+  // Collect ALL trigger log entries for this session:
+  // - During-resolution triggers (fired by ETB, damage, etc.) come from newLogs.
+  // - Pre-resolution cast triggers fired when spells were added to the stack (before
+  //   resolution started). Their triggered-ability items ARE in `steps`, but the "trigger"
+  //   log entries live before logsAtStart. Build synthetic entries from the step items
+  //   so the summary correctly shows "Rhystic Study triggered because X was cast."
+  const duringResolutionTriggers = newLogs.filter(e => e.type === "trigger");
+  const duringSourceNames = new Set(
+    duringResolutionTriggers.map(e => e.text.replace("'s ability triggers", "").trim())
+  );
+
+  // For each triggered ability that was on the stack pre-resolution, find its most recent
+  // matching trigger log entry (closest to logsAtStart) for the cause/effect detail.
+  // Use the step count per source to correctly represent multiple triggers.
+  const preResStepsBySource = new Map<string, ResolutionStep[]>();
+  for (const s of steps.filter(s => s.item.type === "triggered_ability")) {
+    const src = s.item.triggerSource || s.item.name.replace(" trigger", "");
+    if (duringSourceNames.has(src)) continue; // already covered by during-resolution entries
+    if (!preResStepsBySource.has(src)) preResStepsBySource.set(src, []);
+    preResStepsBySource.get(src)!.push(s);
+  }
+  const preResolutionTriggers: typeof duringResolutionTriggers = [];
+  for (const [src, srcSteps] of Array.from(preResStepsBySource.entries())) {
+    // Find the most recent trigger log entry for this source before resolution started
+    const logEntries = state.actionLog.slice(0, logsAtStart).filter(
+      e => e.type === "trigger" && e.text.replace("'s ability triggers", "").trim() === src
+    );
+    const logEntry = logEntries.length > 0 ? logEntries[logEntries.length - 1] : null;
+    for (const s of srcSteps) {
+      preResolutionTriggers.push(logEntry ?? {
+        id: s.item.id,
+        timestamp: 0,
+        type: "trigger" as const,
+        text: `${src}'s ability triggers`,
+        detail: `Condition: ${s.item.triggerEvent ?? "cast"}\nEffect: ${s.item.effect ?? ""}`,
+      });
+    }
+  }
+  const triggerEntries = [...preResolutionTriggers, ...duringResolutionTriggers];
 
   const summaryLines: string[] = [];
 

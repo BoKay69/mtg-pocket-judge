@@ -199,12 +199,14 @@ function checkCastCondition(
   // No "you/opponent" qualifier → any player
 
   // Spell type filters
-  if (
-    cond.includes("instant or sorcery") ||
-    cond.includes("noncreature") ||
-    cond.includes("non-creature")
-  ) {
+  // "instant or sorcery" — only non-permanent spells
+  if (cond.includes("instant or sorcery")) {
     if (spellType !== "instant" && spellType !== "sorcery") return false;
+  // "noncreature" / "non-creature" — any spell type except creature
+  // (includes instants, sorceries, artifacts, enchantments, planeswalkers)
+  } else if (cond.includes("noncreature") || cond.includes("non-creature")) {
+    if (spellType === "creature") return false;
+  // "creature spell" or "a creature" (without "spell") — only creatures
   } else if (cond.includes("creature spell") || cond.includes("a creature")) {
     if (spellType !== "creature") return false;
   } else if (cond.includes("instant spell") && !cond.includes("sorcery")) {
@@ -218,6 +220,8 @@ function checkCastCondition(
   } else if (cond.includes("planeswalker spell")) {
     if (spellType !== "planeswalker") return false;
   }
+  // No type qualifier (e.g. "whenever an opponent casts a spell") — any spell type passes,
+  // including creatures, since creatures ARE spells on the stack.
 
   // X cost filter
   if (cond.includes("with {x}") || cond.includes("with x in its mana cost")) {

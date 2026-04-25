@@ -197,6 +197,8 @@ export interface EngineStackItem {
   imageUri?: string; // Scryfall card image
   hasXCost?: boolean; // True if this spell/ability has {X} in its cost
   xValue?: number; // The chosen value of X (for X spells) or inherited context (for X-based triggers)
+  basePower?: number; // For creature spells — carried through to the Permanent on resolution
+  baseToughness?: number;
 }
 
 export interface StackTarget {
