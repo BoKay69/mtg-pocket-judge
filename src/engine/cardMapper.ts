@@ -317,9 +317,12 @@ export function parseActivatedAbilities(card: ScryfallCard): ActivatedAbilityInf
     const effect = trimmed.slice(colonIdx + 1).trim();
 
     // Validate this looks like an activated ability
-    // Cost should contain mana symbols {X}, tap symbol {T}, or words like "Sacrifice", "Pay", "Discard", "Exile", "Remove"
+    // Cost should contain mana symbols {X}, tap symbol {T}, words like "Sacrifice"/"Pay"/"Discard",
+    // or a planeswalker loyalty cost: +N, -N, −N (Unicode minus U+2212), 0, +X, -X
     const costLower = cost.toLowerCase();
+    const isLoyaltyAbility = /^[+\-−]\d+$|^0$|^[+\-−]x$/i.test(cost.trim());
     const looksLikeAbility =
+      isLoyaltyAbility ||
       cost.includes("{") ||
       costLower.includes("sacrifice") ||
       costLower.includes("pay") ||

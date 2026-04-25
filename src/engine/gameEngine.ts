@@ -7,6 +7,8 @@ import type {
   UserAction,
   TurnStep,
   Permanent,
+  PermanentType,
+  KeywordAbility,
   TriggerDefinition,
 } from "./types";
 import {
@@ -457,6 +459,73 @@ function parseLifeGainFromEffect(effect: string, xValue?: number): number {
   return resolveCount(m[1], xValue);
 }
 
+// ─── Token Permanent Factory ──────────────────────────────────────────────────
+
+function createTokenPermanent(description: string, controller: PlayerId): Omit<Permanent, "id"> {
+  const cleanDesc = description.replace(/\s*tokens?\s*$/, "").trim();
+  const lower = cleanDesc.toLowerCase();
+
+  const ptMatch = lower.match(/(\d+)\/(\d+)/);
+  const basePower = ptMatch ? parseInt(ptMatch[1]) : undefined;
+  const baseToughness = ptMatch ? parseInt(ptMatch[2]) : undefined;
+
+  const types: PermanentType[] = [];
+  if (lower.includes("creature")) types.push("creature");
+  if (lower.includes("artifact")) types.push("artifact");
+  if (lower.includes("enchantment")) types.push("enchantment");
+  if (lower.includes("land")) types.push("land");
+  if (lower.includes("planeswalker")) types.push("planeswalker");
+  if (types.length === 0) types.push("artifact"); // Treasure, Clue, Food, etc.
+
+  const kwMap: [string, KeywordAbility][] = [
+    ["flying", "flying"], ["vigilance", "vigilance"], ["trample", "trample"],
+    ["haste", "haste"], ["deathtouch", "deathtouch"], ["lifelink", "lifelink"],
+    ["menace", "menace"], ["reach", "reach"], ["indestructible", "indestructible"],
+    ["hexproof", "hexproof"], ["first strike", "first_strike"],
+    ["double strike", "double_strike"], ["shroud", "shroud"],
+  ];
+  const keywords: KeywordAbility[] = [];
+  for (const [word, kw] of kwMap) {
+    if (lower.includes(word)) keywords.push(kw);
+  }
+
+  const excludeWords = new Set([
+    "white", "blue", "black", "red", "green", "colorless", "multicolored",
+    "creature", "artifact", "enchantment", "land", "planeswalker",
+    "flying", "vigilance", "trample", "haste", "deathtouch", "lifelink",
+    "menace", "reach", "indestructible", "hexproof", "first", "strike",
+    "double", "shroud", "with", "and", "a", "an", "the",
+  ]);
+
+  const subtypeWords = lower
+    .replace(/\d+\/\d+/, "")
+    .trim()
+    .split(/\s+/)
+    .filter(w => w && !excludeWords.has(w) && !/^\d+$/.test(w));
+
+  const tokenName = subtypeWords.length > 0
+    ? subtypeWords.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") + " Token"
+    : "Token";
+
+  return {
+    name: tokenName,
+    types,
+    controller,
+    owner: controller,
+    basePower,
+    baseToughness,
+    currentPower: basePower,
+    currentToughness: baseToughness,
+    damageMarked: 0,
+    keywords,
+    triggers: [],
+    tapped: false,
+    summoningSick: true,
+    counters: {},
+    oracleText: cleanDesc,
+  };
+}
+
 // ─── Counter Effect Helpers ───────────────────────────────────────────────────
 
 function isCounterspell(effect: string): boolean {
@@ -602,12 +671,14 @@ function resolveTopOfStack(state: GameState): GameState {
     // ── Token creation effects ────────────────────────────────────────────────
     const tokenResult = parseTokensFromEffect(item.effect, item.xValue);
     if (tokenResult) {
-      const controller = state.players[item.controller]!;
+      const controllerPlayer = state.players[item.controller]!;
       addLog(state, "game_event", item.controller,
-        `${controller.label} creates ${tokenResult.count} ${tokenResult.description}`,
+        `${controllerPlayer.label} creates ${tokenResult.count} ${tokenResult.description}`,
         `Effect of ${item.name}`,
         true
       );
+
+      // Fire tokens_created event first — triggers "whenever a token is created"
       const tokensEvent: GameEvent = {
         id: generateId(),
         type: "tokens_created",
@@ -627,27 +698,31 @@ function resolveTopOfStack(state: GameState): GameState {
         placeTriggers(state, tokenTriggers, tokensEvent);
       }
 
-      // Land tokens entering the battlefield each trigger Landfall and other ETB effects.
-      // MTG rules: each land entering is a separate event, so fire one ETB per token.
-      const tokenDescLower = tokenResult.description.toLowerCase();
-      if (tokenDescLower.includes("land")) {
-        for (let i = 0; i < tokenResult.count; i++) {
-          const landEtbEvent: GameEvent = {
-            id: generateId(),
-            type: "enters_battlefield",
-            timestamp: state.stepCount,
-            sourceController: item.controller,
-            sourceName: `${tokenResult.description} token`,
-            data: {
-              type: "land",
-              isToken: true,
-            },
-          };
-          state.eventLog.push(landEtbEvent);
-          const landEtbTriggers = detectTriggers(state, landEtbEvent);
-          if (landEtbTriggers.length > 0) {
-            placeTriggers(state, landEtbTriggers, landEtbEvent);
-          }
+      // Create each token as a Permanent and fire enters_battlefield events.
+      // MTG rules: each token enters separately, each is its own ETB event.
+      for (let i = 0; i < tokenResult.count; i++) {
+        const tokenPerm = createTokenPermanent(tokenResult.description, item.controller);
+        const tokenId = generateId();
+        const newToken: Permanent = { ...tokenPerm, id: tokenId };
+        state.battlefield.push(newToken);
+
+        addLog(state, "game_event", item.controller,
+          `${tokenPerm.name} enters the battlefield under ${controllerPlayer.label}'s control`
+        );
+
+        const etbEvent: GameEvent = {
+          id: generateId(),
+          type: "enters_battlefield",
+          timestamp: state.stepCount,
+          sourceId: tokenId,
+          sourceName: tokenPerm.name,
+          sourceController: item.controller,
+          data: { type: tokenPerm.types[0], isToken: true },
+        };
+        state.eventLog.push(etbEvent);
+        const etbTriggers = detectTriggers(state, etbEvent);
+        if (etbTriggers.length > 0) {
+          placeTriggers(state, etbTriggers, etbEvent);
         }
       }
     }
