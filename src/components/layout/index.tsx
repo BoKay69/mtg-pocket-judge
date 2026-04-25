@@ -13,18 +13,18 @@ export function AppHeader() {
         <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 animate-glow">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/logo.jpg"
+            src="/logo.png"
             alt="MTG Pocket Judge"
             className="w-full h-full object-cover"
           />
         </div>
         <div>
-          <h1 className="font-display font-black text-mtg-text tracking-wide leading-none whitespace-nowrap" style={{ fontSize: 19 }}>
-            MTG: Pocket Judge
-          </h1>
-          <p className="font-display text-[9px] text-mtg-text-muted tracking-[3px] uppercase mt-1.5">
-            Stack · Rules · Rulings
-          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/title.png"
+            alt="Pocket Judge"
+            className="h-10 w-auto object-contain"
+          />
         </div>
       </div>
     </header>
