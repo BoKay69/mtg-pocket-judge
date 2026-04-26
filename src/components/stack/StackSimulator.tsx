@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -163,7 +163,13 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
 
 // ─── Resolution Modal with Confirm Step ──────────────────────────────────────
 
-interface ResolutionStep { item: EngineStackItem; logEntries: LogEntry[]; status: "resolved" | "fizzled"; }
+interface ResolutionStep {
+  item: EngineStackItem;
+  logEntries: LogEntry[];
+  status: "resolved" | "fizzled";
+  phase?: "cast_announcement" | "trigger_announcement" | "resolution";
+  causedByName?: string;
+}
 
 function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onClose: () => void; gs: GameState }) {
   const [phase, setPhase] = useState<"confirm" | "resolving">("confirm");
@@ -175,7 +181,14 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
     if (auto && cur >= steps.length - 1) setAuto(false);
   }, [auto, cur, steps.length, phase]);
 
+  const resolutionSteps = steps.filter(s => (s.phase ?? "resolution") === "resolution");
   const step = phase === "resolving" ? steps[cur] : null;
+
+  function stepMeta(s: ResolutionStep) {
+    if (s.phase === "cast_announcement") return { badgeColor: "#3b82f6", badgeLabel: "Cast", borderClass: "border-blue-500", header: "Spell Cast" };
+    if (s.phase === "trigger_announcement") return { badgeColor: "#f59e0b", badgeLabel: "Triggered", borderClass: "border-amber-500", header: "Trigger Fires" };
+    return { badgeColor: s.status === "fizzled" ? "#dc2626" : "#22c55e", badgeLabel: s.status === "fizzled" ? "Fizzled" : "Resolved", borderClass: s.status === "fizzled" ? "border-red-500 opacity-60" : "border-green-500", header: "Resolves" };
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)" }}>
@@ -183,11 +196,11 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
         {phase === "confirm" && (
           <>
             <div className="px-4 py-3 border-b border-mtg-border">
-              <div className="text-sm font-display font-bold text-mtg-gold">Stack to Resolve ({steps.length} items)</div>
+              <div className="text-sm font-display font-bold text-mtg-gold">Stack to Resolve ({resolutionSteps.length} item{resolutionSteps.length !== 1 && "s"})</div>
               <div className="text-xs text-mtg-text-muted mt-0.5">Resolves top to bottom (Last In, First Out)</div>
             </div>
             <div className="px-4 py-3 space-y-2 max-h-[60vh] overflow-y-auto">
-              {steps.map((s, i) => (
+              {resolutionSteps.map((s, i) => (
                 <div key={s.item.id + i} className="flex items-center gap-3">
                   <div className="text-xs text-mtg-text-muted font-bold w-5 text-right flex-shrink-0">{i + 1}</div>
                   <img src={s.item.imageUri || CARD_BACK} alt={s.item.name} width={48} height={67} className="rounded border border-mtg-border flex-shrink-0" />
@@ -210,48 +223,79 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
             </div>
           </>
         )}
-        {phase === "resolving" && step && (
-          <>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-mtg-border">
-              <div className="text-sm font-display font-bold text-mtg-gold">Resolving Stack</div>
-              <div className="flex items-center gap-2"><span className="text-xs text-mtg-text-muted">{cur + 1}/{steps.length}</span><button onClick={onClose} className="text-mtg-text-muted hover:text-mtg-text text-lg">&times;</button></div>
-            </div>
-            <div className="flex flex-col items-center py-6 px-4 min-h-[240px]">
-              <AnimatePresence mode="popLayout">
-                <motion.div key={step.item.id + cur} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 120 }} transition={{ duration: 0.15 }} className="relative">
-                  <img src={step.item.imageUri || CARD_BACK} alt={step.item.name} width={160} height={223} className={cn("rounded-xl shadow-2xl border-2", step.status === "fizzled" ? "border-red-500 opacity-60" : "border-green-500")} />
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge color={step.status === "fizzled" ? "#dc2626" : "#22c55e"}>{step.status === "fizzled" ? "Fizzled" : "Resolved"}</Badge>
-                  </div>
-                </motion.div>
-              </AnimatePresence>
-            </div>
-            <div className="px-4 pb-3">
-              <div className="text-base font-display font-bold text-mtg-text mb-1">{step.item.name}</div>
-              <div className="text-sm text-mtg-text-dim mb-2">
-                {pLabel(gs, step.item.controller)}
-                {step.item.targets.length > 0 && ` \u2192 ${step.item.targets.map(t => t.name).join(", ")}`}
+        {phase === "resolving" && step && (() => {
+          const meta = stepMeta(step);
+          return (
+            <>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-mtg-border">
+                <div className="text-sm font-display font-bold text-mtg-gold">{meta.header}</div>
+                <div className="flex items-center gap-2"><span className="text-xs text-mtg-text-muted">{cur + 1}/{steps.length}</span><button onClick={onClose} className="text-mtg-text-muted hover:text-mtg-text text-lg">&times;</button></div>
               </div>
-              <div className="space-y-2 max-h-36 overflow-y-auto">
-                {step.logEntries.filter(e => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0">{LOG_ICONS[e.type]}</span>}
-                    <div>
-                      <div className="text-sm font-display" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{e.text}</div>
-                      {e.detail && <div className="text-xs text-mtg-text-dim mt-0.5 whitespace-pre-wrap">{e.detail}</div>}
+              <div className="flex flex-col items-center py-6 px-4 min-h-[240px]">
+                <AnimatePresence mode="popLayout">
+                  <motion.div key={step.item.id + cur} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 120 }} transition={{ duration: 0.15 }} className="relative">
+                    <img src={step.item.imageUri || CARD_BACK} alt={step.item.name} width={160} height={223} className={cn("rounded-xl shadow-2xl border-2", meta.borderClass)} />
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                      <Badge color={meta.badgeColor}>{meta.badgeLabel}</Badge>
                     </div>
-                  </div>
-                ))}
+                  </motion.div>
+                </AnimatePresence>
               </div>
-            </div>
-            <div className="flex justify-center gap-1.5 py-2">{steps.map((_, i) => <div key={i} className={cn("w-2 h-2 rounded-full transition-all", i === cur ? "bg-mtg-gold scale-125" : i < cur ? "bg-green-500" : "bg-mtg-border")} />)}</div>
-            <div className="flex gap-2 px-4 pb-4">
-              <Button variant="secondary" size="sm" onClick={() => setCur(p => Math.max(0, p - 1))} disabled={cur === 0}>&larr;</Button>
-              <Button className="flex-1" size="sm" onClick={() => { if (cur >= steps.length - 1) onClose(); else setCur(p => p + 1); }}>{cur >= steps.length - 1 ? "Done" : "Next \u2192"}</Button>
-              <Button variant="ghost" size="sm" onClick={() => setAuto(!auto)}>{auto ? "Pause" : "Auto"}</Button>
-            </div>
-          </>
-        )}
+              <div className="px-4 pb-3">
+                <div className="text-base font-display font-bold text-mtg-text mb-1">{step.item.name}</div>
+                <div className="text-sm text-mtg-text-dim mb-2">
+                  {pLabel(gs, step.item.controller)}
+                  {step.item.targets.length > 0 && ` → ${step.item.targets.map(t => t.name).join(", ")}`}
+                </div>
+                {step.phase === "cast_announcement" && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm font-display" style={{ color: "#3b82f6" }}>
+                      <span>{LOG_ICONS["cast_spell"]}</span>
+                      <span>{pLabel(gs, step.item.controller)} casts {step.item.name}{step.item.xValue !== undefined ? ` (X = ${step.item.xValue})` : ""}</span>
+                    </div>
+                    {step.item.effect && <div className="text-xs text-mtg-text-dim leading-relaxed line-clamp-4">{step.item.effect}</div>}
+                  </div>
+                )}
+                {step.phase === "trigger_announcement" && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm font-display" style={{ color: "#f59e0b" }}>
+                      <span>{LOG_ICONS["trigger"]}</span>
+                      <span>{step.item.triggerSource ?? step.item.name} triggers</span>
+                    </div>
+                    {step.causedByName && (
+                      <div className="text-xs text-mtg-text-muted">Caused by: casting <span className="font-semibold text-mtg-text">{step.causedByName}</span></div>
+                    )}
+                    {step.item.effect && <div className="text-xs text-mtg-text-dim leading-relaxed line-clamp-3">Effect: {step.item.effect}</div>}
+                  </div>
+                )}
+                {(step.phase === "resolution" || !step.phase) && (
+                  <div className="space-y-2 max-h-36 overflow-y-auto">
+                    {step.logEntries.filter(e => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0">{LOG_ICONS[e.type]}</span>}
+                        <div>
+                          <div className="text-sm font-display" style={{ color: LOG_COLORS[e.type] || "#8a8894" }}>{e.text}</div>
+                          {e.detail && <div className="text-xs text-mtg-text-dim mt-0.5 whitespace-pre-wrap">{e.detail}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-center gap-1 py-2 flex-wrap px-2">
+                {steps.map((s, i) => {
+                  const dotColor = i === cur ? "bg-mtg-gold scale-125" : i < cur ? "bg-green-500" : s.phase === "cast_announcement" ? "bg-blue-500/40" : s.phase === "trigger_announcement" ? "bg-amber-500/40" : "bg-mtg-border";
+                  return <div key={i} className={cn("w-2 h-2 rounded-full transition-all flex-shrink-0", dotColor)} />;
+                })}
+              </div>
+              <div className="flex gap-2 px-4 pb-4">
+                <Button variant="secondary" size="sm" onClick={() => setCur(p => Math.max(0, p - 1))} disabled={cur === 0}>&larr;</Button>
+                <Button className="flex-1" size="sm" onClick={() => { if (cur >= steps.length - 1) onClose(); else setCur(p => p + 1); }}>{cur >= steps.length - 1 ? "Done" : "Next →"}</Button>
+                <Button variant="ghost" size="sm" onClick={() => setAuto(!auto)}>{auto ? "Pause" : "Auto"}</Button>
+              </div>
+            </>
+          );
+        })()}
       </motion.div>
     </motion.div>
   );
@@ -499,7 +543,26 @@ function LessonBanner({ preset }: { preset: ScenarioPreset }) {
 // ─── Resolution Logic ────────────────────────────────────────────────────────
 
 function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]; finalState: GameState } {
-  const steps: ResolutionStep[] = [];
+  // Build cast/trigger announcement steps from the pre-resolution stack state (bottom to top = cast order)
+  const announcementSteps: ResolutionStep[] = [];
+  const assignedTriggerIds = new Set<string>();
+  for (let i = 0; i < beforeState.stack.length; i++) {
+    const item = beforeState.stack[i];
+    if (item.type !== "triggered_ability") {
+      announcementSteps.push({ phase: "cast_announcement", item, logEntries: [], status: "resolved" });
+      // Any triggered_ability items immediately above this spell (before the next non-trigger) are its cast triggers
+      for (let j = i + 1; j < beforeState.stack.length; j++) {
+        const above = beforeState.stack[j];
+        if (above.type !== "triggered_ability") break;
+        if (!assignedTriggerIds.has(above.id)) {
+          assignedTriggerIds.add(above.id);
+          announcementSteps.push({ phase: "trigger_announcement", item: above, logEntries: [], status: "resolved", causedByName: item.name });
+        }
+      }
+    }
+  }
+
+  const resolutionSteps: ResolutionStep[] = [];
   let state = JSON.parse(JSON.stringify(beforeState)) as GameState;
   const logsAtStart = state.actionLog.length;
   let safety = 0;
@@ -517,12 +580,14 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
     const logSlice = state.actionLog.slice(logBefore);
     const didFizzle = logSlice.some((e) => e.type === "fizzle");
     const wasCountered = logSlice.some((e) => e.type === "counter" && e.text.includes(topItem.name));
-    steps.push({
+    resolutionSteps.push({
+      phase: "resolution",
       item: topItem,
       logEntries: logSlice,
       status: didFizzle || wasCountered ? "fizzled" : "resolved",
     });
   }
+  const steps = [...announcementSteps, ...resolutionSteps];
 
   // ─── Post-resolution summary ────────────────────────────────────────────────
   // After everything resolves, scan battlefield triggers against events that fired.
