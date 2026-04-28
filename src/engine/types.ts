@@ -136,6 +136,19 @@ export interface TriggerDefinition {
   controller: PlayerId;
 }
 
+// ─── Transform / DFC ─────────────────────────────────────────────────────────
+
+export interface CardFaceData {
+  name: string;
+  types: PermanentType[];
+  oracleText?: string;
+  imageUri?: string;
+  basePower?: number;
+  baseToughness?: number;
+  keywords: KeywordAbility[];
+  triggers: TriggerDefinition[];
+}
+
 // ─── Permanents ──────────────────────────────────────────────────────────────
 
 export type PermanentType =
@@ -165,6 +178,10 @@ export interface Permanent {
   oracleText?: string;
   imageUri?: string;
   isToken?: boolean;
+  // Transform / DFC
+  currentFace?: 0 | 1;
+  cardFaces?: [CardFaceData, CardFaceData];
+  hasDayNightMechanic?: boolean;
 }
 
 // ─── Stack Items ─────────────────────────────────────────────────────────────
@@ -208,6 +225,9 @@ export interface EngineStackItem {
   stormOriginalItem?: Omit<EngineStackItem, "id" | "timestamp" | "stormOriginalItem">; // Original spell snapshot for copying
   isStormCopy?: boolean; // True if this item was created by storm
   stormCopyIndex?: number; // Which copy number (1-based)
+  // DFC / Transform data (carried for permanent spells that resolve onto battlefield)
+  cardFaces?: [CardFaceData, CardFaceData];
+  hasDayNightMechanic?: boolean;
 }
 
 export interface StackTarget {
@@ -308,6 +328,11 @@ export interface GameState {
   // Metadata
   stepCount: number; // Total actions taken, for timestamps
   format: string; // "standard", "commander", etc.
+
+  // Day/Night mechanic
+  dayNight: "day" | "night" | null;
+  spellsCastThisTurn: number;
+  spellsCastLastTurn: number;
 }
 
 // ─── User Actions ────────────────────────────────────────────────────────────
@@ -322,4 +347,6 @@ export type UserAction =
   | { type: "set_life"; player: PlayerId; amount: number }
   | { type: "deal_damage"; targetId: string; amount: number; sourceId?: string }
   | { type: "draw_card"; player: PlayerId; count?: number }
+  | { type: "transform_permanent"; permanentId: string }
+  | { type: "set_day_night"; state: "day" | "night" | null }
   | { type: "undo" };

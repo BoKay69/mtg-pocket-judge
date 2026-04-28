@@ -18,6 +18,7 @@ export function CardSearch({ format }: CardSearchProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [faceIndex, setFaceIndex] = useState(0);
 
   const fetchCard = async (name: string) => {
     setLoading(true);
@@ -31,6 +32,7 @@ export function CardSearch({ format }: CardSearchProps) {
       if (!res.ok) throw new Error("Card not found");
       const card: ScryfallCard = await res.json();
       setSelectedCard(card);
+      setFaceIndex(0);
 
       // Fetch rulings
       const rulingsRes = await fetch(
@@ -133,14 +135,32 @@ export function CardSearch({ format }: CardSearchProps) {
             <div className="p-4">
               {/* Card header */}
               <div className="flex gap-4">
-                {selectedCard.image_uris?.normal && (
-                  <img
-                    src={selectedCard.image_uris.normal}
-                    alt={selectedCard.name}
-                    className="w-32 rounded-lg shadow-lg flex-shrink-0"
-                    loading="lazy"
-                  />
-                )}
+                {(() => {
+                  const isDFC = !!(selectedCard.card_faces && selectedCard.card_faces.length >= 2);
+                  const displayImage = isDFC
+                    ? selectedCard.card_faces![faceIndex]?.image_uris?.normal
+                    : selectedCard.image_uris?.normal;
+                  if (!displayImage) return null;
+                  return (
+                    <div className="relative flex-shrink-0">
+                      <img
+                        src={displayImage}
+                        alt={isDFC ? selectedCard.card_faces![faceIndex].name : selectedCard.name}
+                        className="w-32 rounded-lg shadow-lg"
+                        loading="lazy"
+                      />
+                      {isDFC && (
+                        <button
+                          onClick={() => setFaceIndex((i) => (i === 0 ? 1 : 0))}
+                          title={`Show ${faceIndex === 0 ? "back" : "front"} face`}
+                          className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-mtg-surface border border-mtg-gold/50 text-mtg-gold text-xs px-2 py-0.5 rounded-full hover:bg-mtg-surface-hover transition-colors whitespace-nowrap"
+                        >
+                          {faceIndex === 0 ? "▶ Back" : "◀ Front"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div className="min-w-0 flex-1">
                   <h3 className="text-lg font-bold font-display text-mtg-text">
                     {selectedCard.name}
@@ -168,14 +188,31 @@ export function CardSearch({ format }: CardSearchProps) {
               </div>
 
               {/* Oracle text */}
-              {selectedCard.oracle_text && (
+              {selectedCard.card_faces && selectedCard.card_faces.length >= 2 ? (
+                <div className="mt-4">
+                  <SectionLabel>Oracle Text</SectionLabel>
+                  <div className="flex flex-col gap-2">
+                    {selectedCard.card_faces.map((face, i) => (
+                      <div key={i} className="p-3 bg-mtg-surface rounded-lg">
+                        <div className="text-[11px] text-mtg-gold font-bold uppercase tracking-wide mb-1.5">
+                          {face.name}
+                          {face.mana_cost ? ` — ${face.mana_cost}` : ""}
+                        </div>
+                        <div className="text-sm text-mtg-text leading-relaxed whitespace-pre-wrap">
+                          {face.oracle_text || "—"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : selectedCard.oracle_text ? (
                 <div className="mt-4">
                   <SectionLabel>Oracle Text</SectionLabel>
                   <div className="text-sm text-mtg-text leading-relaxed p-3 bg-mtg-surface rounded-lg whitespace-pre-wrap">
                     {selectedCard.oracle_text}
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Keywords */}
               {selectedCard.keywords.length > 0 && (

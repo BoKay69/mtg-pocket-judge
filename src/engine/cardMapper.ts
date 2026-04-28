@@ -1,4 +1,4 @@
-import type { ScryfallCard } from "@/types";
+import type { ScryfallCard, ScryfallCardFace } from "@/types";
 import type {
   Permanent,
   EngineStackItem,
@@ -6,6 +6,7 @@ import type {
   PermanentType,
   KeywordAbility,
   PlayerId,
+  CardFaceData,
 } from "./types";
 import { parseTriggersFromOracle } from "./triggers";
 import { generateId } from "./utils";
@@ -97,46 +98,114 @@ function hasStormKeyword(card: ScryfallCard): boolean {
   return /(?:^|\n)storm(?:\n|$)/i.test(card.oracle_text || "");
 }
 
+// ─── Image URI Helper ────────────────────────────────────────────────────────
+
+function getImageUri(card: ScryfallCard): string | undefined {
+  return (
+    card.image_uris?.normal ||
+    card.image_uris?.small ||
+    card.card_faces?.[0]?.image_uris?.normal ||
+    card.card_faces?.[0]?.image_uris?.small
+  );
+}
+
+// ─── DFC / Transform Helpers ─────────────────────────────────────────────────
+
+function extractKeywordsFromOracle(text: string): KeywordAbility[] {
+  const keywords: KeywordAbility[] = [];
+  const lower = text.toLowerCase();
+  for (const [kw, ability] of Object.entries(SCRYFALL_KEYWORD_MAP)) {
+    if (lower.includes(kw)) keywords.push(ability);
+  }
+  return keywords;
+}
+
+function buildFaceData(
+  face: ScryfallCardFace,
+  permanentId: string,
+  controller: PlayerId
+): CardFaceData {
+  const oracleText = face.oracle_text || "";
+  const types = extractPermanentTypes(face.type_line);
+  const imageUri = face.image_uris?.normal || face.image_uris?.small;
+  const basePower = face.power ? (parseInt(face.power) || 0) : undefined;
+  const baseToughness = face.toughness ? (parseInt(face.toughness) || 0) : undefined;
+  const keywords = extractKeywordsFromOracle(oracleText);
+  const triggers = parseTriggersFromOracle(oracleText, permanentId, face.name, controller);
+  return { name: face.name, types, oracleText, imageUri, basePower, baseToughness, keywords, triggers };
+}
+
 // ─── Main Conversion Functions ───────────────────────────────────────────────
 
 /**
  * Convert a Scryfall card into a Permanent for the battlefield.
+ * For double-faced cards, stores both face data and starts on face 0.
  */
 export function cardToPermanent(
   card: ScryfallCard,
   controller: PlayerId
 ): Omit<Permanent, "id"> {
   const permId = "pending"; // Will be replaced with real ID when added to state
+  const isDFC = !!(card.card_faces && card.card_faces.length >= 2);
+  const frontFace = isDFC ? card.card_faces![0] : null;
+  const backFace = isDFC ? card.card_faces![1] : null;
+
+  // For DFC cards use front face oracle text; fall back to card-level oracle_text
+  const oracleText = frontFace?.oracle_text || card.oracle_text || "";
+  const sourceName = frontFace?.name || card.name;
   const keywords = extractKeywords(card);
-  const triggers = parseTriggersFromOracle(
-    card.oracle_text || "",
-    permId,
-    card.name,
-    controller
-  );
+  const triggers = parseTriggersFromOracle(oracleText, permId, sourceName, controller);
+
+  // Build two-face data for DFC permanents
+  let cardFaces: [CardFaceData, CardFaceData] | undefined;
+  let hasDayNightMechanic: boolean | undefined;
+
+  if (isDFC && frontFace && backFace) {
+    cardFaces = [
+      buildFaceData(frontFace, permId, controller),
+      buildFaceData(backFace, permId, controller),
+    ];
+    hasDayNightMechanic =
+      card.keywords.some((k) => k.toLowerCase() === "daybound") ||
+      oracleText.toLowerCase().includes("daybound") ||
+      (backFace.oracle_text || "").toLowerCase().includes("nightbound") ||
+      undefined;
+  }
+
+  const typeLine = frontFace?.type_line || card.type_line;
+  const powerStr = frontFace?.power ?? card.power;
+  const toughnessStr = frontFace?.toughness ?? card.toughness;
+  const imageUri =
+    frontFace?.image_uris?.normal ||
+    frontFace?.image_uris?.small ||
+    getImageUri(card);
 
   return {
-    name: card.name,
-    types: extractPermanentTypes(card.type_line),
+    name: sourceName,
+    types: extractPermanentTypes(typeLine),
     controller,
     owner: controller,
-    basePower: card.power ? parseInt(card.power) || 0 : undefined,
-    baseToughness: card.toughness ? parseInt(card.toughness) || 0 : undefined,
-    currentPower: card.power ? parseInt(card.power) || 0 : undefined,
-    currentToughness: card.toughness ? parseInt(card.toughness) || 0 : undefined,
+    basePower: powerStr ? parseInt(powerStr) || 0 : undefined,
+    baseToughness: toughnessStr ? parseInt(toughnessStr) || 0 : undefined,
+    currentPower: powerStr ? parseInt(powerStr) || 0 : undefined,
+    currentToughness: toughnessStr ? parseInt(toughnessStr) || 0 : undefined,
     damageMarked: 0,
     keywords,
     triggers,
     tapped: false,
     summoningSick: true,
     counters: {},
-    oracleText: card.oracle_text,
-    imageUri: card.image_uris?.normal || card.image_uris?.small,
+    oracleText,
+    imageUri,
+    currentFace: isDFC ? 0 : undefined,
+    cardFaces,
+    hasDayNightMechanic: hasDayNightMechanic || undefined,
   };
 }
 
 /**
  * Convert a Scryfall card into a Stack Item for casting.
+ * For double-faced permanents, carries face data so the Permanent is complete on resolution.
  */
 export function cardToStackItem(
   card: ScryfallCard,
@@ -144,29 +213,52 @@ export function cardToStackItem(
   targets: EngineStackItem["targets"] = [],
   xValue?: number
 ): Omit<EngineStackItem, "id" | "timestamp"> {
-  const spellType = extractSpellType(card.type_line);
+  const isDFC = !!(card.card_faces && card.card_faces.length >= 2);
+  const frontFace = isDFC ? card.card_faces![0] : null;
+  const backFace = isDFC ? card.card_faces![1] : null;
+
+  const typeLine = frontFace?.type_line || card.type_line;
+  const spellType = extractSpellType(typeLine);
+  const oracleText = frontFace?.oracle_text || card.oracle_text || "";
+
   const hasXCost =
     (card.mana_cost || "").toUpperCase().includes("{X}") ||
-    // Some cards have X in activated/modal costs described in oracle text
-    /\{x\}/i.test(card.oracle_text || "");
+    /\{x\}/i.test(oracleText);
 
   const hasStorm = hasStormKeyword(card);
+
+  // Carry DFC data for permanents so handlePermanentEnters can use it
+  let cardFaces: [CardFaceData, CardFaceData] | undefined;
+  let hasDayNightMechanic: boolean | undefined;
+  if (isDFC && frontFace && backFace && isPermanentType(typeLine)) {
+    cardFaces = [
+      buildFaceData(frontFace, "pending", controller),
+      buildFaceData(backFace, "pending", controller),
+    ];
+    hasDayNightMechanic =
+      card.keywords.some((k) => k.toLowerCase() === "daybound") || undefined;
+  }
+
+  const powerStr = frontFace?.power ?? card.power;
+  const toughnessStr = frontFace?.toughness ?? card.toughness;
 
   return {
     type: "spell",
     spellType,
-    name: card.name,
+    name: frontFace?.name || card.name,
     controller,
     targets,
-    effect: card.oracle_text || undefined,
+    effect: oracleText || undefined,
     isManaAbility: false,
     hasSplitSecond: hasSplitSecond(card),
-    imageUri: card.image_uris?.normal || card.image_uris?.small,
+    imageUri: getImageUri(card),
     hasXCost,
     xValue: hasXCost ? xValue : undefined,
-    basePower: card.power !== undefined && card.power !== null ? (parseInt(card.power) || 0) : undefined,
-    baseToughness: card.toughness !== undefined && card.toughness !== null ? (parseInt(card.toughness) || 0) : undefined,
+    basePower: powerStr !== undefined && powerStr !== null ? (parseInt(powerStr) || 0) : undefined,
+    baseToughness: toughnessStr !== undefined && toughnessStr !== null ? (parseInt(toughnessStr) || 0) : undefined,
     hasStorm: hasStorm || undefined,
+    cardFaces,
+    hasDayNightMechanic,
   };
 }
 
@@ -405,7 +497,7 @@ export function abilityToStackItem(
     effect: ability.effect,
     isManaAbility: false,
     hasSplitSecond: false,
-    imageUri: card.image_uris?.normal || card.image_uris?.small,
+    imageUri: getImageUri(card),
     hasXCost,
     xValue: hasXCost ? xValue : undefined,
   };

@@ -1,8 +1,24 @@
 // ─── Card Types ──────────────────────────────────────────────────────────────
 
+export interface ScryfallCardFace {
+  name: string;
+  mana_cost?: string;
+  type_line: string;
+  oracle_text?: string;
+  power?: string;
+  toughness?: string;
+  image_uris?: {
+    small: string;
+    normal: string;
+    large: string;
+    art_crop: string;
+  };
+}
+
 export interface ScryfallCard {
   id: string;
   name: string;
+  layout?: string;
   mana_cost: string;
   cmc: number;
   type_line: string;
@@ -17,6 +33,7 @@ export interface ScryfallCard {
     large: string;
     art_crop: string;
   };
+  card_faces?: ScryfallCardFace[];
   rulings_uri: string;
   power?: string;
   toughness?: string;

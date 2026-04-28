@@ -135,7 +135,13 @@ export async function fetchTokenImage(tokenName: string): Promise<string | null>
     const data = await scryfallFetch<{ data: ScryfallCard[] }>(`/cards/search?${params}`);
     const card = data.data?.[0];
     if (!card) return null;
-    return card.image_uris?.normal ?? card.image_uris?.small ?? null;
+    return (
+      card.image_uris?.normal ??
+      card.image_uris?.small ??
+      card.card_faces?.[0]?.image_uris?.normal ??
+      card.card_faces?.[0]?.image_uris?.small ??
+      null
+    );
   } catch {
     return null;
   }

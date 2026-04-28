@@ -10,6 +10,7 @@ import type {
   PermanentType,
   KeywordAbility,
   TriggerDefinition,
+  CardFaceData,
 } from "./types";
 import {
   TURN_STEP_ORDER,
@@ -86,6 +87,9 @@ export function createInitialState(
     actionLog: [],
     stepCount: 0,
     format,
+    dayNight: null,
+    spellsCastThisTurn: 0,
+    spellsCastLastTurn: 0,
   };
 }
 
@@ -141,6 +145,10 @@ export function processAction(
       return handleDealDamage(state, action.targetId, action.amount, action.sourceId);
     case "draw_card":
       return handleDrawCard(state, action.player, action.count || 1);
+    case "transform_permanent":
+      return handleTransformPermanent(state, action.permanentId);
+    case "set_day_night":
+      return handleSetDayNight(state, action.state);
     case "undo":
       return undo() ?? state;
     default:
@@ -203,6 +211,7 @@ function handleCastSpell(
   // Creatures ARE spells on the stack — Rhystic Study, Mystic Remora, etc. trigger on them.
   // Only activated and triggered abilities are NOT spells.
   if (isActualSpell) {
+    state.spellsCastThisTurn++;
     const isPermanentSpell = isPermamentSpell(spell.spellType);
     const castEvent: GameEvent = {
       id: generateId(),
@@ -843,6 +852,16 @@ function resolveTopOfStack(state: GameState): GameState {
     }
   }
 
+  // ── Transform effects from triggered abilities ────────────────────────────
+  if (item.type === "triggered_ability" && item.effect && item.triggerSource) {
+    const sourcePerm = state.battlefield.find(
+      (p) => p.name === item.triggerSource || p.id === item.triggerSource
+    );
+    if (sourcePerm?.cardFaces) {
+      applyTriggerTransformEffect(state, sourcePerm, item.effect);
+    }
+  }
+
   // Clear split second if the resolving spell had it
   if (item.hasSplitSecond) {
     state.priority.splitSecondActive = false;
@@ -868,6 +887,14 @@ function handlePermanentEnters(
     ? parseTriggersFromOracle(item.effect, permId, item.name, item.controller)
     : [];
 
+  // Fix DFC face trigger sourceIds from "pending" → real permId
+  const cardFaces = item.cardFaces
+    ? item.cardFaces.map((face) => ({
+        ...face,
+        triggers: face.triggers.map((t) => ({ ...t, sourceId: permId })),
+      })) as [CardFaceData, CardFaceData]
+    : undefined;
+
   const permanent: Permanent = {
     id: permId,
     name: item.name,
@@ -886,6 +913,9 @@ function handlePermanentEnters(
     counters: {},
     oracleText: item.effect,
     imageUri: item.imageUri,
+    currentFace: cardFaces ? 0 : undefined,
+    cardFaces,
+    hasDayNightMechanic: item.hasDayNightMechanic || undefined,
   };
 
   state.battlefield.push(permanent);
@@ -1137,7 +1167,10 @@ function advanceStep(state: GameState): GameState {
   const nextIdx = currentIdx + 1;
 
   if (nextIdx >= TURN_STEP_ORDER.length) {
-    // End of turn — start new turn, advance to next player in order
+    // End of turn — save spell count for day/night check next upkeep, reset counter
+    state.spellsCastLastTurn = state.spellsCastThisTurn;
+    state.spellsCastThisTurn = 0;
+    // Advance to next player
     state.turnNumber++;
     state.activePlayer = getNextPlayer(state.activePlayer, state.playerOrder);
     state.currentStep = TURN_STEP_ORDER[0];
@@ -1153,6 +1186,11 @@ function advanceStep(state: GameState): GameState {
     `→ ${STEP_LABELS[state.currentStep]}`,
     undefined
   );
+
+  // Day/Night check at the beginning of each upkeep
+  if (state.currentStep === "upkeep") {
+    checkDayNightAtUpkeep(state);
+  }
 
   // Check for beginning-of-step triggers
   if (PRIORITY_STEPS.includes(state.currentStep)) {
@@ -1254,6 +1292,16 @@ function handleAddPermanent(
       ...t,
       sourceId: t.sourceId === "pending" ? realId : t.sourceId,
     })),
+    // Fix DFC face trigger sourceIds too
+    cardFaces: permanent.cardFaces
+      ? permanent.cardFaces.map((face) => ({
+          ...face,
+          triggers: face.triggers.map((t) => ({
+            ...t,
+            sourceId: t.sourceId === "pending" ? realId : t.sourceId,
+          })),
+        })) as [CardFaceData, CardFaceData]
+      : undefined,
   };
   state.battlefield.push(newPerm);
   addLog(state, "game_event", permanent.controller,
@@ -1426,6 +1474,178 @@ function handleDrawCard(
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// ─── Transform Helpers ────────────────────────────────────────────────────────
+
+function applyTransformToPermanent(state: GameState, perm: Permanent): void {
+  if (!perm.cardFaces || perm.cardFaces.length < 2) return;
+  const newFaceIndex = (perm.currentFace === 0 ? 1 : 0) as 0 | 1;
+  const newFace = perm.cardFaces[newFaceIndex];
+  const oldName = perm.name;
+
+  perm.currentFace = newFaceIndex;
+  perm.name = newFace.name;
+  perm.types = newFace.types;
+  perm.oracleText = newFace.oracleText;
+  perm.imageUri = newFace.imageUri;
+  perm.basePower = newFace.basePower;
+  perm.baseToughness = newFace.baseToughness;
+  perm.currentPower = newFace.basePower;
+  perm.currentToughness = newFace.baseToughness;
+  perm.keywords = newFace.keywords;
+  perm.triggers = newFace.triggers.map((t) => ({
+    ...t,
+    sourceId: perm.id,
+    controller: perm.controller,
+  }));
+
+  addLog(state, "game_event", perm.controller,
+    `${oldName} transforms into ${newFace.name}`,
+    `Now showing: ${newFace.name} (face ${newFaceIndex + 1})`,
+    true
+  );
+}
+
+function handleTransformPermanent(state: GameState, permanentId: string): GameState {
+  const perm = state.battlefield.find((p) => p.id === permanentId);
+  if (!perm) return state;
+  if (!perm.cardFaces) {
+    addLog(state, "explanation", undefined,
+      `${perm.name} is not a double-faced card.`
+    );
+    return state;
+  }
+  applyTransformToPermanent(state, perm);
+  return state;
+}
+
+// ─── Counter + Transform Effect Parsing ──────────────────────────────────────
+
+/** Parse "put a/N {type} counter(s) on" from a trigger effect. */
+function parseCounterAddFromEffect(effect: string): { type: string; count: number } | null {
+  const numWords: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  const m = effect.match(/put\s+(\w+|\d+)\s+(\w+)\s+counters?\s+on\b/i);
+  if (!m) return null;
+  const rawCount = m[1].toLowerCase();
+  const count = numWords[rawCount] ?? (parseInt(rawCount) || 1);
+  return { type: m[2].toLowerCase(), count };
+}
+
+/** Parse "if there are N or more {type} counters … transform" conditional. */
+function parseConditionalTransform(
+  effect: string
+): { counterType: string; threshold: number; removeCounters: boolean } | null {
+  const numWords: Record<string, number> = {
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  const m = effect.match(
+    /if\s+there\s+are\s+(\w+|\d+)\s+or\s+more\s+(\w+)\s+counters?[^,]*[\s\S]*?transform/i
+  );
+  if (!m) return null;
+  const rawCount = m[1].toLowerCase();
+  const threshold = numWords[rawCount] ?? (parseInt(rawCount) || 1);
+  const counterType = m[2].toLowerCase();
+  const removeCounters = /remove all/i.test(effect);
+  return { counterType, threshold, removeCounters };
+}
+
+/**
+ * Apply counter-add and conditional/unconditional transform from a trigger effect.
+ * Called when a triggered_ability with transform text resolves.
+ */
+function applyTriggerTransformEffect(
+  state: GameState,
+  sourcePerm: Permanent,
+  effect: string
+): void {
+  const counterAdd = parseCounterAddFromEffect(effect);
+
+  if (counterAdd) {
+    // Add counter(s) to the source permanent
+    const prev = sourcePerm.counters[counterAdd.type] || 0;
+    sourcePerm.counters[counterAdd.type] = prev + counterAdd.count;
+    addLog(
+      state,
+      "game_event",
+      sourcePerm.controller,
+      `${sourcePerm.name} gets ${counterAdd.count} ${counterAdd.type} counter${counterAdd.count !== 1 ? "s" : ""} (${sourcePerm.counters[counterAdd.type]} total)`
+    );
+
+    // Check for conditional transform
+    const cond = parseConditionalTransform(effect);
+    if (cond && sourcePerm.counters[cond.counterType] >= cond.threshold) {
+      if (cond.removeCounters) {
+        delete sourcePerm.counters[cond.counterType];
+        addLog(state, "game_event", sourcePerm.controller,
+          `All ${cond.counterType} counters removed from ${sourcePerm.name}`
+        );
+      }
+      applyTransformToPermanent(state, sourcePerm);
+    }
+  } else if (/\btransform\b/i.test(effect)) {
+    // Unconditional transform (no counter condition)
+    applyTransformToPermanent(state, sourcePerm);
+  }
+}
+
+// ─── Day/Night Mechanic ───────────────────────────────────────────────────────
+
+function applyDayNightChange(state: GameState, newState: "day" | "night"): void {
+  state.dayNight = newState;
+  addLog(state, "game_event", undefined,
+    newState === "day" ? "It becomes Day" : "It becomes Night",
+    newState === "day"
+      ? "All nightbound permanents transform to their front face."
+      : "All daybound permanents transform to their back face.",
+    true
+  );
+
+  for (const perm of state.battlefield) {
+    if (!perm.hasDayNightMechanic || !perm.cardFaces) continue;
+    if (newState === "night" && perm.currentFace === 0) {
+      applyTransformToPermanent(state, perm);
+    } else if (newState === "day" && perm.currentFace === 1) {
+      applyTransformToPermanent(state, perm);
+    }
+  }
+}
+
+function handleSetDayNight(
+  state: GameState,
+  newDayNight: "day" | "night" | null
+): GameState {
+  if (newDayNight === null) {
+    state.dayNight = null;
+    addLog(state, "game_event", undefined, "Day/Night state cleared.");
+  } else {
+    applyDayNightChange(state, newDayNight);
+  }
+  return state;
+}
+
+function checkDayNightAtUpkeep(state: GameState): void {
+  if (state.dayNight === null) return;
+  const count = state.spellsCastLastTurn;
+  const playerLabel = state.players[state.activePlayer]!.label;
+
+  if (state.dayNight === "day" && count === 0) {
+    addLog(state, "explanation", undefined,
+      `Day/Night: ${playerLabel} cast no spells last turn — it becomes Night`,
+      "All daybound permanents transform."
+    );
+    applyDayNightChange(state, "night");
+  } else if (state.dayNight === "night" && count >= 2) {
+    addLog(state, "explanation", undefined,
+      `Day/Night: ${playerLabel} cast ${count} spells last turn — it becomes Day`,
+      "All nightbound permanents transform."
+    );
+    applyDayNightChange(state, "day");
+  }
+}
 
 function resetPriority(state: GameState): void {
   const hasPassed: Partial<Record<PlayerId, boolean>> = {};

@@ -106,7 +106,7 @@ function PlayerGrid({ gs }: { gs: GameState }) {
 // Module-level cache: token name → image URL (null = not found, undefined = not yet fetched)
 const tokenImageCache = new Map<string, string | null>();
 
-function BattlefieldDisplay({ permanents, playerId, playerLabel, tokenImages }: { permanents: Permanent[]; playerId: PlayerId; playerLabel: string; tokenImages: Record<string, string> }) {
+function BattlefieldDisplay({ permanents, playerId, playerLabel, tokenImages, onTransform }: { permanents: Permanent[]; playerId: PlayerId; playerLabel: string; tokenImages: Record<string, string>; onTransform?: (id: string) => void }) {
   const pp = permanents.filter((p) => p.controller === playerId);
   if (pp.length === 0) return <div className="text-[11px] text-mtg-text-muted italic py-1">{playerLabel}: No permanents</div>;
   return (
@@ -115,18 +115,42 @@ function BattlefieldDisplay({ permanents, playerId, playerLabel, tokenImages }: 
       <div className="flex flex-wrap gap-2">
         {pp.map((perm) => {
           const imgSrc = perm.imageUri || (perm.isToken ? tokenImages[perm.name] : undefined);
+          const hasCounters = Object.keys(perm.counters).length > 0;
+          const isDFC = !!perm.cardFaces;
           return (
-            <div key={perm.id} className={cn("relative group", perm.tapped && "opacity-60")}>
-              {imgSrc ? (
-                <img src={imgSrc} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-              ) : (
-                <div className="w-20 h-28 rounded-lg border border-mtg-border-light bg-mtg-card flex flex-col items-center justify-center p-1">
-                  <span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>
-                  {perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}
+            <div key={perm.id} className={cn("relative group flex flex-col items-center gap-0.5", perm.tapped && "opacity-60")}>
+              <div className="relative">
+                {imgSrc ? (
+                  <img src={imgSrc} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                ) : (
+                  <div className="w-20 h-28 rounded-lg border border-mtg-border-light bg-mtg-card flex flex-col items-center justify-center p-1">
+                    <span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>
+                    {perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}
+                  </div>
+                )}
+                {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
+                {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition}`).join("\n")}>{perm.triggers.length}</div>}
+              </div>
+              {/* Counter badges */}
+              {hasCounters && (
+                <div className="flex flex-wrap gap-0.5 max-w-[80px] justify-center">
+                  {Object.entries(perm.counters).map(([type, count]) => (
+                    <span key={type} className="px-1 py-0.5 rounded text-[8px] font-bold bg-blue-700/80 text-white border border-blue-500/50" title={`${count} ${type} counter${count !== 1 ? "s" : ""}`}>
+                      {type === "+1/+1" ? `+${count}` : type === "-1/-1" ? `-${count}` : `${count} ${type[0]}`}
+                    </span>
+                  ))}
                 </div>
               )}
-              {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
-              {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition}`).join("\n")}>{perm.triggers.length}</div>}
+              {/* Transform button for DFC permanents */}
+              {isDFC && onTransform && (
+                <button
+                  onClick={() => onTransform(perm.id)}
+                  className="w-full px-1 py-0.5 rounded text-[8px] font-bold bg-indigo-800/70 text-indigo-200 border border-indigo-500/50 hover:bg-indigo-700/80 transition-colors"
+                  title={`Transform (face ${(perm.currentFace ?? 0) + 1}/2)`}
+                >
+                  ⇌ Transform
+                </button>
+              )}
             </div>
           );
         })}
@@ -968,10 +992,50 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           Add permanents that are already on the battlefield. These are <span className="text-mtg-text font-semibold">not being cast</span> — they are already in play when the scenario begins.
         </p>
         {gs.playerOrder.map((pid) => (
-          <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} tokenImages={tokenImages} />
+          <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} tokenImages={tokenImages} onTransform={(id) => dispatch({ type: "transform_permanent", permanentId: id })} />
         ))}
         <AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} />
       </div>
+
+      {/* ── Day/Night Panel (shown when relevant) ──────────────────── */}
+      {(gs.dayNight !== null || gs.battlefield.some((p) => p.hasDayNightMechanic)) && (
+        <Card className="!p-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <div className="text-xs font-display font-bold text-mtg-text">
+                Day/Night: {gs.dayNight === "day" ? "☀️ Day" : gs.dayNight === "night" ? "🌙 Night" : "Not Active"}
+              </div>
+              {gs.dayNight !== null && (
+                <div className="text-[10px] text-mtg-text-muted mt-0.5">
+                  Spells cast last turn: {gs.spellsCastLastTurn} &middot; This turn: {gs.spellsCastThisTurn}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={() => dispatch({ type: "set_day_night", state: "day" })}
+                className={cn("px-2.5 py-1 rounded-lg text-xs font-display font-bold border transition-all", gs.dayNight === "day" ? "bg-amber-400/20 border-amber-400 text-amber-300" : "border-mtg-border text-mtg-text-dim hover:border-amber-400/50 hover:text-amber-300")}
+              >
+                ☀️ Day
+              </button>
+              <button
+                onClick={() => dispatch({ type: "set_day_night", state: "night" })}
+                className={cn("px-2.5 py-1 rounded-lg text-xs font-display font-bold border transition-all", gs.dayNight === "night" ? "bg-indigo-400/20 border-indigo-400 text-indigo-300" : "border-mtg-border text-mtg-text-dim hover:border-indigo-400/50 hover:text-indigo-300")}
+              >
+                🌙 Night
+              </button>
+              {gs.dayNight !== null && (
+                <button
+                  onClick={() => dispatch({ type: "set_day_night", state: null })}
+                  className="px-2.5 py-1 rounded-lg text-xs font-display border border-mtg-border text-mtg-text-muted hover:border-mtg-border-light transition-all"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* ── Step 3: The Stack ─────────────────────────────────────── */}
       <div>
