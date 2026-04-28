@@ -381,16 +381,31 @@ function checkDrawCondition(
 ): boolean {
   const cond = (trigger.condition || "").toLowerCase();
 
+  // ── Controller check ─────────────────────────────────────────────────────
+  let controllerPasses = true;
   if (cond.includes("opponent") || cond.includes("an opponent draws")) {
-    return event.sourceController !== source.controller;
+    controllerPasses = event.sourceController !== source.controller;
+  } else if (cond.includes("you draw") || cond.includes("when you draw") || cond.includes("whenever you draw")) {
+    controllerPasses = event.sourceController === source.controller;
+  } else if (cond.includes("each player") || cond.includes("a player draws")) {
+    controllerPasses = true;
   }
-  if (cond.includes("you draw") || cond.includes("when you draw")) {
-    return event.sourceController === source.controller;
+
+  if (!controllerPasses) return false;
+
+  // ── Nth-card-this-turn check (e.g. "your third card each turn") ──────────
+  // Map ordinal words to numbers
+  const ordinalMap: Record<string, number> = {
+    first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+    sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+  };
+  const ordinalMatch = cond.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/);
+  if (ordinalMatch) {
+    const requiredN = ordinalMap[ordinalMatch[1]];
+    const totalDrawn = (event.data?.totalDrawnThisTurn as number | undefined) ?? 0;
+    return totalDrawn === requiredN;
   }
-  if (cond.includes("each player") || cond.includes("a player draws")) {
-    return true;
-  }
-  // Default: any player draws triggers it
+
   return true;
 }
 

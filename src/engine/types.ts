@@ -218,6 +218,10 @@ export interface EngineStackItem {
   xValue?: number; // The chosen value of X (for X spells) or inherited context (for X-based triggers)
   basePower?: number; // For creature spells — carried through to the Permanent on resolution
   baseToughness?: number;
+  // Triggered ability targeting
+  requiresTarget?: boolean; // True if this triggered ability requires a chosen target
+  // Controller of the event that fired this trigger (e.g. the player who drew for draw_card triggers)
+  eventSourceController?: PlayerId;
   // Storm fields
   hasStorm?: boolean; // Spell has the storm keyword
   priorStormCount?: number; // Spells cast this turn before the current stack (user-provided for storm count)
@@ -333,6 +337,9 @@ export interface GameState {
   dayNight: "day" | "night" | null;
   spellsCastThisTurn: number;
   spellsCastLastTurn: number;
+
+  // Per-player draw tracking (resets each turn)
+  cardsDrawnThisTurn: Partial<Record<PlayerId, number>>;
 }
 
 // ─── User Actions ────────────────────────────────────────────────────────────

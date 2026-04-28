@@ -90,6 +90,7 @@ export function createInitialState(
     dayNight: null,
     spellsCastThisTurn: 0,
     spellsCastLastTurn: 0,
+    cardsDrawnThisTurn: {},
   };
 }
 
@@ -522,6 +523,25 @@ function parseEnergyFromEffect(effect: string): number {
   return matches ? matches.length : 0;
 }
 
+// ─── Amass Parser ────────────────────────────────────────────────────────────
+
+/**
+ * Detect "amass [Type] N" in an effect. Returns the army type and counter count, or null.
+ * Covers "amass Orcs 1", "amass Zombies 2", and generic "amass 3" (defaults to Zombie Army).
+ */
+function parseAmassFromEffect(effect: string, xValue?: number): { count: number; type: string } | null {
+  if (!effect) return null;
+  if (!effect.toLowerCase().includes("amass")) return null;
+  const m = effect.match(/\bamass\s+(?:([A-Za-z]+)\s+)?(\d+|x)\b/i);
+  if (!m) return null;
+  const rawType = m[1];
+  const type = rawType
+    ? rawType.charAt(0).toUpperCase() + rawType.slice(1).toLowerCase()
+    : "Zombie";
+  const count = resolveCount(m[2], xValue);
+  return { count, type };
+}
+
 // ─── Token Permanent Factory ──────────────────────────────────────────────────
 
 function createTokenPermanent(description: string, controller: PlayerId): Omit<Permanent, "id"> {
@@ -588,6 +608,70 @@ function createTokenPermanent(description: string, controller: PlayerId): Omit<P
     oracleText: cleanDesc,
     isToken: true,
   };
+}
+
+// ─── Amass Handler ───────────────────────────────────────────────────────────
+
+/**
+ * Execute an Amass effect: find an Army this player controls, or create a 0/0 Army token,
+ * then put N +1/+1 counters on it.
+ */
+function handleAmass(
+  state: GameState,
+  controller: PlayerId,
+  count: number,
+  armyType: string,
+  sourceName: string
+): void {
+  const controllerPlayer = state.players[controller]!;
+
+  // Find an existing Army controlled by this player (any token or permanent named *Army*)
+  let army = state.battlefield.find(
+    (p) => p.controller === controller && p.name.toLowerCase().includes("army")
+  );
+
+  if (!army) {
+    // Create a new 0/0 Army token; it immediately gets the counters below
+    const tokenId = generateId();
+    const armyToken: Permanent = {
+      id: tokenId,
+      name: `${armyType} Army Token`,
+      types: ["creature"],
+      controller,
+      owner: controller,
+      basePower: 0,
+      baseToughness: 0,
+      currentPower: 0,
+      currentToughness: 0,
+      damageMarked: 0,
+      keywords: [],
+      triggers: [],
+      tapped: false,
+      summoningSick: true,
+      counters: {},
+      isToken: true,
+      oracleText: `${armyType} Army creature token`,
+    };
+    state.battlefield.push(armyToken);
+    army = armyToken;
+
+    addLog(state, "game_event", controller,
+      `${controllerPlayer.label} creates a 0/0 ${armyType} Army token`,
+      `Created by ${sourceName} (Amass ${armyType} ${count})`,
+      true
+    );
+  }
+
+  // Put N +1/+1 counters on the Army
+  army.counters["+1/+1"] = (army.counters["+1/+1"] || 0) + count;
+  army.currentPower = (army.currentPower ?? 0) + count;
+  army.currentToughness = (army.currentToughness ?? 0) + count;
+
+  addLog(state, "game_event", controller,
+    `Amass ${armyType} ${count}: ${army.name} gets ${count} +1/+1 counter${count !== 1 ? "s" : ""} (now ${army.currentPower}/${army.currentToughness})`,
+    `Effect of ${sourceName}`,
+    true
+  );
 }
 
 // ─── Counter Effect Helpers ───────────────────────────────────────────────────
@@ -711,6 +795,10 @@ function resolveTopOfStack(state: GameState): GameState {
       const playerObj = state.players[player];
       if (!playerObj) continue;
       for (let i = 0; i < count; i++) {
+        const prevDrawn = state.cardsDrawnThisTurn[player] ?? 0;
+        const totalDrawn = prevDrawn + 1;
+        state.cardsDrawnThisTurn[player] = totalDrawn;
+
         addLog(state, "game_event", player,
           `${playerObj.label} draws a card`,
           `Caused by ${item.name} resolving`,
@@ -722,7 +810,7 @@ function resolveTopOfStack(state: GameState): GameState {
           timestamp: state.stepCount,
           sourceController: player,
           sourceName: playerObj.label,
-          data: { source: item.name },
+          data: { source: item.name, drawNumber: i + 1, totalDrawnThisTurn: totalDrawn },
         };
         state.eventLog.push(drawEvent);
         const drawTriggers = detectTriggers(state, drawEvent);
@@ -794,9 +882,11 @@ function resolveTopOfStack(state: GameState): GameState {
     // ── Damage effects ────────────────────────────────────────────────────────
     const damageResults = parseDamageFromEffect(item.effect, item.xValue);
     for (const dmg of damageResults) {
+      const namedTarget = item.targets.length > 0 ? item.targets[0].name : null;
+      const dmgTargetLabel = namedTarget ?? dmg.targetType;
       addLog(state, "game_event", item.controller,
-        `${item.name} deals ${dmg.amount} damage to ${dmg.targetType}`,
-        undefined,
+        `${item.name} deals ${dmg.amount} damage to ${dmgTargetLabel}`,
+        namedTarget ? undefined : item.requiresTarget ? "Target: any target (player, creature, or planeswalker) — controller must declare" : undefined,
         true
       );
       const dmgEvent: GameEvent = {
@@ -849,6 +939,17 @@ function resolveTopOfStack(state: GameState): GameState {
         `Energy from ${item.name}`,
         true
       );
+    }
+
+    // ── Amass effects ─────────────────────────────────────────────────────────
+    const amassResult = parseAmassFromEffect(item.effect, item.xValue);
+    if (amassResult) {
+      // "they amass" / "that player amasses" means the event's source (e.g. drawing player for Bowmasters)
+      const amassController =
+        /\b(?:they|that player)\s+amass/i.test(item.effect ?? "") && item.eventSourceController
+          ? item.eventSourceController
+          : item.controller;
+      handleAmass(state, amassController, amassResult.count, amassResult.type, item.name);
     }
   }
 
@@ -1067,6 +1168,22 @@ function destroyPermanent(state: GameState, permanent: Permanent): void {
 
 // ─── Place Triggers on Stack ─────────────────────────────────────────────────
 
+function effectRequiresTarget(effect: string): boolean {
+  if (!effect) return false;
+  const lower = effect.toLowerCase();
+  return (
+    lower.includes("any target") ||
+    lower.includes("target creature") ||
+    lower.includes("target player") ||
+    lower.includes("target opponent") ||
+    lower.includes("target permanent") ||
+    lower.includes("target artifact") ||
+    lower.includes("target enchantment") ||
+    lower.includes("target land") ||
+    lower.includes("target spell")
+  );
+}
+
 function placeTriggers(
   state: GameState,
   triggers: TriggerDefinition[],
@@ -1114,7 +1231,9 @@ function placeTriggers(
       hasSplitSecond: false,
       timestamp: state.stepCount,
       imageUri: sourcePerm?.imageUri,
-      xValue: xContext, // pass X context so resolution can use it
+      xValue: xContext,
+      requiresTarget: effectRequiresTarget(effectWithX),
+      eventSourceController: event.sourceController,
     };
 
     state.stack.push(stackItem);
@@ -1129,7 +1248,7 @@ function placeTriggers(
       : event.type === "dies"
         ? `caused by ${event.sourceName || "a permanent"} dying`
       : event.type === "draw_card"
-        ? `caused by a card being drawn`
+        ? `caused by ${event.sourceName || "a player"} drawing a card (draw #${event.data?.totalDrawnThisTurn ?? "?"})`
       : event.type === "deals_damage"
         ? `caused by ${event.sourceName || "a source"} dealing ${event.data?.amount ?? ""} damage`
       : event.type === "beginning_of_phase"
@@ -1167,9 +1286,10 @@ function advanceStep(state: GameState): GameState {
   const nextIdx = currentIdx + 1;
 
   if (nextIdx >= TURN_STEP_ORDER.length) {
-    // End of turn — save spell count for day/night check next upkeep, reset counter
+    // End of turn — save spell count for day/night check next upkeep, reset counters
     state.spellsCastLastTurn = state.spellsCastThisTurn;
     state.spellsCastThisTurn = 0;
+    state.cardsDrawnThisTurn = {};
     // Advance to next player
     state.turnNumber++;
     state.activePlayer = getNextPlayer(state.activePlayer, state.playerOrder);
@@ -1211,12 +1331,18 @@ function advanceStep(state: GameState): GameState {
 
   // Draw step: active player draws a card (fires draw_card triggers)
   if (state.currentStep === "draw") {
+    const ap = state.activePlayer;
+    const prevDrawn = state.cardsDrawnThisTurn[ap] ?? 0;
+    const totalDrawn = prevDrawn + 1;
+    state.cardsDrawnThisTurn[ap] = totalDrawn;
+
     const drawEvent: GameEvent = {
       id: generateId(),
       type: "draw_card",
       timestamp: state.stepCount,
-      sourceController: state.activePlayer,
-      sourceName: state.players[state.activePlayer]!.label,
+      sourceController: ap,
+      sourceName: state.players[ap]!.label,
+      data: { drawNumber: 1, totalDrawnThisTurn: totalDrawn },
     };
     state.eventLog.push(drawEvent);
     addLog(state, "game_event", state.activePlayer,
@@ -1447,20 +1573,25 @@ function handleDrawCard(
   const playerObj = state.players[player]!;
 
   for (let i = 0; i < count; i++) {
+    // Increment per-player draw counter for this turn
+    const prevDrawn = state.cardsDrawnThisTurn[player] ?? 0;
+    const totalDrawn = prevDrawn + 1;
+    state.cardsDrawnThisTurn[player] = totalDrawn;
+
     addLog(state, "game_event", player,
       `${playerObj.label} draws a card`,
       undefined,
       true
     );
 
-    // Fire draw_card event — this triggers Smothering Tithe, Consecrated Sphinx, etc.
+    // Fire draw_card event — this triggers Smothering Tithe, Consecrated Sphinx, Tamiyo, etc.
     const drawEvent: GameEvent = {
       id: generateId(),
       type: "draw_card",
       timestamp: state.stepCount,
       sourceController: player,
       sourceName: playerObj.label,
-      data: { drawNumber: i + 1 },
+      data: { drawNumber: i + 1, totalDrawnThisTurn: totalDrawn },
     };
     state.eventLog.push(drawEvent);
 
@@ -1534,7 +1665,7 @@ function parseCounterAddFromEffect(effect: string): { type: string; count: numbe
   return { type: m[2].toLowerCase(), count };
 }
 
-/** Parse "if there are N or more {type} counters … transform" conditional. */
+/** Parse "if there are N or more {type} counters … transform" (or "if [name] has N or more …") conditional. */
 function parseConditionalTransform(
   effect: string
 ): { counterType: string; threshold: number; removeCounters: boolean } | null {
@@ -1542,9 +1673,16 @@ function parseConditionalTransform(
     one: 1, two: 2, three: 3, four: 4, five: 5,
     six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
   };
-  const m = effect.match(
+  // "if there are N or more X counters … transform"
+  let m = effect.match(
     /if\s+there\s+are\s+(\w+|\d+)\s+or\s+more\s+(\w+)\s+counters?[^,]*[\s\S]*?transform/i
   );
+  // "if [permanent/it/this] has N or more X counters … transform"
+  if (!m) {
+    m = effect.match(
+      /if\s+\w[\w,\s']*?\s+has\s+(\w+|\d+)\s+or\s+more\s+(\w+)\s+counters?[\s\S]*?transform/i
+    );
+  }
   if (!m) return null;
   const rawCount = m[1].toLowerCase();
   const threshold = numWords[rawCount] ?? (parseInt(rawCount) || 1);

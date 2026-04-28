@@ -210,6 +210,16 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
                 <Badge color="#22c55e">&#8593; Resolves First</Badge>
               </div>
             )}
+            {item.requiresTarget && !isFirst && (
+              <div className="absolute -top-2 -left-2 z-10">
+                <Badge color="#ef4444">&#127919; Target</Badge>
+              </div>
+            )}
+            {item.requiresTarget && isFirst && (
+              <div className="absolute top-6 -left-2 z-10">
+                <Badge color="#ef4444">&#127919; Target</Badge>
+              </div>
+            )}
             {stack.length > 1 && isLast && overflow === 0 && (
               <div className="absolute -bottom-2 -right-2 z-10" style={{ marginBottom: "-8px" }}>
                 <Badge color="#6b7280">&#8595; Resolves Last</Badge>
@@ -280,6 +290,7 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
                       {s.item.type === "triggered_ability" && " \u00B7 Trigger"}
                       {s.item.type === "activated_ability" && " \u00B7 Ability"}
                       {s.item.targets.length > 0 && ` \u2192 ${s.item.targets.map(t => t.name).join(", ")}`}
+                      {s.item.requiresTarget && s.item.targets.length === 0 && <span className="ml-1 text-red-400 font-semibold">\u00B7 &#127919; Needs target</span>}
                     </div>
                     {s.item.effect && <div className="text-[11px] text-mtg-text-muted mt-0.5 line-clamp-2">{s.item.effect}</div>}
                   </div>
@@ -335,6 +346,12 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
                       <div className="text-xs text-mtg-text-muted">Caused by: casting <span className="font-semibold text-mtg-text">{step.causedByName}</span></div>
                     )}
                     {step.item.effect && <div className="text-xs text-mtg-text-dim leading-relaxed line-clamp-3">Effect: {step.item.effect}</div>}
+                    {step.item.requiresTarget && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-900/30 border border-red-500/40 text-xs text-red-300 font-semibold">
+                        <span>&#127919;</span>
+                        <span>Requires target — controller must declare any target (player, creature, or planeswalker)</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 {(step.phase === "resolution" || !step.phase) && (

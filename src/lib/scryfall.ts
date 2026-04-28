@@ -126,12 +126,9 @@ export async function getRandomCard(query?: string): Promise<ScryfallCard> {
 export async function fetchTokenImage(tokenName: string): Promise<string | null> {
   // Strip " Token" suffix (our engine appends it, Scryfall uses just the subtype)
   const searchName = tokenName.replace(/\s+Token$/i, "").trim();
-  try {
-    const params = new URLSearchParams({
-      q: `type:token !"${searchName}"`,
-      include_extras: "true",
-      order: "released",
-    });
+
+  const tryFetch = async (q: string): Promise<string | null> => {
+    const params = new URLSearchParams({ q, include_extras: "true", order: "released" });
     const data = await scryfallFetch<{ data: ScryfallCard[] }>(`/cards/search?${params}`);
     const card = data.data?.[0];
     if (!card) return null;
@@ -142,6 +139,16 @@ export async function fetchTokenImage(tokenName: string): Promise<string | null>
       card.card_faces?.[0]?.image_uris?.small ??
       null
     );
+  };
+
+  try {
+    // First try exact name match
+    const exact = await tryFetch(`type:token !"${searchName}"`);
+    if (exact) return exact;
+    // Fall back to multi-word subtype search (e.g. "Orc Army" → t:orc t:army)
+    // Scryfall uses separate subtypes, so phrase-quoting a multi-word name doesn't work
+    const typeSearch = searchName.toLowerCase().split(/\s+/).map(w => `t:${w}`).join(" ");
+    return await tryFetch(`type:token ${typeSearch}`);
   } catch {
     return null;
   }
