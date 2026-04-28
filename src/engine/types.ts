@@ -9,6 +9,7 @@ export interface Player {
   id: PlayerId;
   label: string;
   life: number;
+  energyCounters: number;
 }
 
 // ─── Turn Structure ──────────────────────────────────────────────────────────
@@ -163,6 +164,7 @@ export interface Permanent {
   attachedTo?: string; // ID of permanent this is attached to
   oracleText?: string;
   imageUri?: string;
+  isToken?: boolean;
 }
 
 // ─── Stack Items ─────────────────────────────────────────────────────────────

@@ -3,16 +3,16 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AppHeader, TabBar, FormatPicker } from "@/components/layout";
-import {
-  StackSimulator,
-} from "@/components/stack";
+import { StackSimulator } from "@/components/stack";
 import { KeywordDictionary } from "@/components/glossary";
 import { CardSearch } from "@/components/glossary/CardSearch";
+import { LifeCounter } from "@/components/life";
 import { SectionLabel } from "@/components/ui";
 import type { Format } from "@/types";
 
 const TABS = [
   { id: "simulator", label: "Simulator", icon: "⚖" },
+  { id: "life", label: "Life", icon: "♥" },
   { id: "glossary", label: "Glossary", icon: "📖" },
   { id: "search", label: "Search", icon: "🔍" },
 ];
@@ -47,6 +47,13 @@ export default function HomePage() {
             transition={{ duration: 0.2 }}
           >
             {activeTab === "simulator" && <StackSimulator format={format} />}
+
+            {activeTab === "life" && (
+              <>
+                <SectionLabel>Life Counter</SectionLabel>
+                <LifeCounter format={format} />
+              </>
+            )}
 
             {activeTab === "glossary" && (
               <>

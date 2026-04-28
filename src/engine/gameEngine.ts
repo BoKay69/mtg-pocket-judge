@@ -58,7 +58,7 @@ export function createInitialState(
   const hasPassed: Partial<Record<PlayerId, boolean>> = {};
 
   for (const pid of playerIds) {
-    players[pid] = { id: pid, label: PLAYER_LABELS[pid], life: startingLife };
+    players[pid] = { id: pid, label: PLAYER_LABELS[pid], life: startingLife, energyCounters: 0 };
     graveyards[pid] = [];
     hasPassed[pid] = false;
   }
@@ -504,6 +504,15 @@ function parseLifeGainFromEffect(effect: string, xValue?: number): number {
   return resolveCount(m[1], xValue);
 }
 
+// ─── Energy Counter Parser ───────────────────────────────────────────────────
+
+function parseEnergyFromEffect(effect: string): number {
+  if (!effect) return 0;
+  // Energy is granted via "{E}" symbols: "you get {E}{E}{E}" → 3 energy
+  const matches = effect.match(/\{E\}/gi);
+  return matches ? matches.length : 0;
+}
+
 // ─── Token Permanent Factory ──────────────────────────────────────────────────
 
 function createTokenPermanent(description: string, controller: PlayerId): Omit<Permanent, "id"> {
@@ -568,6 +577,7 @@ function createTokenPermanent(description: string, controller: PlayerId): Omit<P
     summoningSick: true,
     counters: {},
     oracleText: cleanDesc,
+    isToken: true,
   };
 }
 
@@ -818,6 +828,18 @@ function resolveTopOfStack(state: GameState): GameState {
       if (lifeTriggers.length > 0) {
         placeTriggers(state, lifeTriggers, lifeEvent);
       }
+    }
+
+    // ── Energy counter effects ────────────────────────────────────────────────
+    const energyGained = parseEnergyFromEffect(item.effect);
+    if (energyGained > 0) {
+      const player = state.players[item.controller]!;
+      player.energyCounters = (player.energyCounters ?? 0) + energyGained;
+      addLog(state, "game_event", item.controller,
+        `${player.label} gets ${energyGained} ⚡ (now ${player.energyCounters})`,
+        `Energy from ${item.name}`,
+        true
+      );
     }
   }
 

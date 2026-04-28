@@ -120,3 +120,23 @@ export async function getRandomCard(query?: string): Promise<ScryfallCard> {
   const params = query ? `?q=${encodeURIComponent(query)}` : "";
   return scryfallFetch<ScryfallCard>(`/cards/random${params}`);
 }
+
+// ─── Token image lookup ───────────────────────────────────────────────────────
+
+export async function fetchTokenImage(tokenName: string): Promise<string | null> {
+  // Strip " Token" suffix (our engine appends it, Scryfall uses just the subtype)
+  const searchName = tokenName.replace(/\s+Token$/i, "").trim();
+  try {
+    const params = new URLSearchParams({
+      q: `type:token !"${searchName}"`,
+      include_extras: "true",
+      order: "released",
+    });
+    const data = await scryfallFetch<{ data: ScryfallCard[] }>(`/cards/search?${params}`);
+    const card = data.data?.[0];
+    if (!card) return null;
+    return card.image_uris?.normal ?? card.image_uris?.small ?? null;
+  } catch {
+    return null;
+  }
+}

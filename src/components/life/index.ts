@@ -1,0 +1,1 @@
+export { LifeCounter } from "./LifeCounter";

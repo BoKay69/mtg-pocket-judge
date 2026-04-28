@@ -13,6 +13,7 @@ import type { ActivatedAbilityInfo } from "@/engine";
 import { Button, Card, Badge, SectionLabel } from "@/components/ui";
 import { useCardAutocomplete, useCardFetch } from "@/hooks";
 import { cn } from "@/lib/utils";
+import { fetchTokenImage } from "@/lib/scryfall";
 import type { ScryfallCard } from "@/types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ function ScenarioDropdown({ onSelect }: { onSelect: (p: ScenarioPreset) => void 
 
 // ─── Player Panel & Grid ─────────────────────────────────────────────────────
 
-function PlayerPanel({ player, isActive, hasPriority }: { player: { id: PlayerId; label: string; life: number }; isActive: boolean; hasPriority: boolean }) {
+function PlayerPanel({ player, isActive, hasPriority }: { player: { id: PlayerId; label: string; life: number; energyCounters?: number }; isActive: boolean; hasPriority: boolean }) {
   return (
     <div className={cn("flex-1 p-2.5 rounded-xl border transition-all duration-300 min-w-0", hasPriority ? "border-mtg-gold bg-mtg-gold/10" : "border-mtg-border bg-mtg-card")}>
       <div className="flex items-center justify-between gap-1">
@@ -75,7 +76,15 @@ function PlayerPanel({ player, isActive, hasPriority }: { player: { id: PlayerId
           {isActive && <Badge>Turn</Badge>}
           {hasPriority && <Badge color="#22c55e">Priority</Badge>}
         </div>
-        <div className="text-xl font-display font-bold text-mtg-text flex-shrink-0">{player.life}</div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {(player.energyCounters ?? 0) > 0 && (
+            <div className="flex items-center gap-0.5 text-[11px] font-bold text-yellow-400" title="Energy counters">
+              <span>⚡</span>
+              <span>{player.energyCounters}</span>
+            </div>
+          )}
+          <div className="text-xl font-display font-bold text-mtg-text">{player.life}</div>
+        </div>
       </div>
     </div>
   );
@@ -94,27 +103,33 @@ function PlayerGrid({ gs }: { gs: GameState }) {
 
 // ─── Battlefield Display (card images) ───────────────────────────────────────
 
-function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents: Permanent[]; playerId: PlayerId; playerLabel: string }) {
+// Module-level cache: token name → image URL (null = not found, undefined = not yet fetched)
+const tokenImageCache = new Map<string, string | null>();
+
+function BattlefieldDisplay({ permanents, playerId, playerLabel, tokenImages }: { permanents: Permanent[]; playerId: PlayerId; playerLabel: string; tokenImages: Record<string, string> }) {
   const pp = permanents.filter((p) => p.controller === playerId);
   if (pp.length === 0) return <div className="text-[11px] text-mtg-text-muted italic py-1">{playerLabel}: No permanents</div>;
   return (
     <div className="mb-2">
       <div className="text-[10px] text-mtg-text-muted uppercase tracking-wider mb-1.5 font-bold">{playerLabel}</div>
       <div className="flex flex-wrap gap-2">
-        {pp.map((perm) => (
-          <div key={perm.id} className={cn("relative group", perm.tapped && "opacity-60")}>
-            {perm.imageUri ? (
-              <img src={perm.imageUri} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-            ) : (
-              <div className="w-20 h-28 rounded-lg border border-mtg-border-light bg-mtg-card flex flex-col items-center justify-center p-1">
-                <span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>
-                {perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}
-              </div>
-            )}
-            {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
-            {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition}`).join("\n")}>{perm.triggers.length}</div>}
-          </div>
-        ))}
+        {pp.map((perm) => {
+          const imgSrc = perm.imageUri || (perm.isToken ? tokenImages[perm.name] : undefined);
+          return (
+            <div key={perm.id} className={cn("relative group", perm.tapped && "opacity-60")}>
+              {imgSrc ? (
+                <img src={imgSrc} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              ) : (
+                <div className="w-20 h-28 rounded-lg border border-mtg-border-light bg-mtg-card flex flex-col items-center justify-center p-1">
+                  <span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>
+                  {perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}
+                </div>
+              )}
+              {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
+              {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition}`).join("\n")}>{perm.triggers.length}</div>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -818,6 +833,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   });
   const [preset, setPreset] = useState<ScenarioPreset | null>(null);
   const [resSteps, setResSteps] = useState<ResolutionStep[] | null>(null);
+  const [tokenImages, setTokenImages] = useState<Record<string, string>>({});
   const logEndRef = useRef<HTMLDivElement>(null);
 
   // Reset on format change
@@ -828,6 +844,24 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   }, [format]);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [gs.actionLog.length]);
+
+  // Fetch Scryfall artwork for tokens that don't yet have an image
+  useEffect(() => {
+    const tokens = gs.battlefield.filter(p => p.isToken && !p.imageUri);
+    const seen = new Set<string>();
+    const missingNames: string[] = [];
+    for (const t of tokens) {
+      if (!seen.has(t.name) && !tokenImageCache.has(t.name)) { seen.add(t.name); missingNames.push(t.name); }
+    }
+    if (missingNames.length === 0) return;
+    for (const name of missingNames) {
+      tokenImageCache.set(name, null); // Reserve the slot to avoid duplicate fetches
+      fetchTokenImage(name).then(url => {
+        tokenImageCache.set(name, url);
+        if (url) setTokenImages(prev => ({ ...prev, [name]: url }));
+      });
+    }
+  }, [gs.battlefield]);
 
   const dispatch = useCallback((a: Parameters<typeof processAction>[1]) => { setGs(p => processAction(p, a)); }, []);
 
@@ -934,7 +968,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           Add permanents that are already on the battlefield. These are <span className="text-mtg-text font-semibold">not being cast</span> — they are already in play when the scenario begins.
         </p>
         {gs.playerOrder.map((pid) => (
-          <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} />
+          <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} tokenImages={tokenImages} />
         ))}
         <AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} />
       </div>
