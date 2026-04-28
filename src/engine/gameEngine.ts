@@ -225,6 +225,51 @@ function handleCastSpell(
     if (triggers.length > 0) {
       placeTriggers(state, triggers, castEvent);
     }
+
+    // Handle Storm — copies placed immediately onto the stack (above the original, resolving LIFO first)
+    if (stackItem.hasStorm) {
+      const stackSpellsBefore = state.stack.slice(0, -1).filter((s) => s.type === "spell").length;
+      const priorCount = spell.priorStormCount ?? 0;
+      const totalStormCount = stackSpellsBefore + priorCount;
+
+      addLog(
+        state,
+        "trigger",
+        spell.controller,
+        `${spell.name}'s Storm triggers`,
+        `Storm count: ${totalStormCount} (${stackSpellsBefore} spell${stackSpellsBefore !== 1 ? "s" : ""} on the stack + ${priorCount} cast earlier this turn). ${
+          totalStormCount > 0
+            ? `Creating ${totalStormCount} cop${totalStormCount !== 1 ? "ies" : "y"} of ${spell.name} on the stack now.`
+            : "Storm count is 0 — no copies created."
+        }`,
+        true
+      );
+
+      if (totalStormCount > 0) {
+        const { id: _id, timestamp: _ts, stormOriginalItem: _orig, priorStormCount: _prior, hasStorm: _hs, ...spellForCopy } = stackItem;
+        for (let i = 0; i < totalStormCount; i++) {
+          const copy: EngineStackItem = {
+            ...spellForCopy,
+            id: generateId(),
+            timestamp: state.stepCount + i,
+            name: `${spell.name} (Storm Copy ${i + 1})`,
+            isStormCopy: true,
+            stormCopyIndex: i + 1,
+            hasStorm: false,
+            priorStormCount: undefined,
+          };
+          state.stack.push(copy);
+        }
+        addLog(
+          state,
+          "game_event",
+          spell.controller,
+          `Storm places ${totalStormCount} cop${totalStormCount !== 1 ? "ies" : "y"} of ${spell.name} on the stack`,
+          `Copy ${totalStormCount} is on top and resolves first. The original ${spell.name} is at the bottom and resolves last.`,
+          true
+        );
+      }
+    }
   }
 
   // Reset priority — both players get a chance to respond

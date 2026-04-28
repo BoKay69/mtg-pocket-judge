@@ -199,6 +199,13 @@ export interface EngineStackItem {
   xValue?: number; // The chosen value of X (for X spells) or inherited context (for X-based triggers)
   basePower?: number; // For creature spells — carried through to the Permanent on resolution
   baseToughness?: number;
+  // Storm fields
+  hasStorm?: boolean; // Spell has the storm keyword
+  priorStormCount?: number; // Spells cast this turn before the current stack (user-provided for storm count)
+  stormCount?: number; // Total storm count stored on the storm triggered-ability item
+  stormOriginalItem?: Omit<EngineStackItem, "id" | "timestamp" | "stormOriginalItem">; // Original spell snapshot for copying
+  isStormCopy?: boolean; // True if this item was created by storm
+  stormCopyIndex?: number; // Which copy number (1-based)
 }
 
 export interface StackTarget {

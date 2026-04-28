@@ -120,36 +120,58 @@ function BattlefieldDisplay({ permanents, playerId, playerLabel }: { permanents:
   );
 }
 
-// ─── Visual Card Stack (LIFO — top of stack at top) ──────────────────────────
+// ─── Visual Card Stack (LIFO — top of stack at top) ────────────────────────
+
+type StackDisplayItem = { kind: "stack"; item: EngineStackItem; isFirst: boolean; isLast: boolean };
+
+function buildStackDisplay(stack: EngineStackItem[]): StackDisplayItem[] {
+  const topFirst = [...stack].reverse();
+  return topFirst.map((item, i) => ({
+    kind: "stack" as const,
+    item,
+    isFirst: i === 0,
+    isLast: i === topFirst.length - 1,
+  }));
+}
 
 function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameState }) {
   if (stack.length === 0) return <div className="text-center py-6 text-mtg-text-muted text-sm border border-dashed border-mtg-border rounded-xl">Stack is empty &mdash; add a spell or ability to begin</div>;
-  // LIFO: last pushed = index (length-1) = top of stack = resolves first
-  // Display order: top of stack (resolves first) at the visual top
-  const topFirst = [...stack].reverse();
-  const isLast = (i: number) => i === topFirst.length - 1;
+
+  const displayItems = buildStackDisplay(stack);
+
+  // Cap visible cards to avoid rendering hundreds; show a badge for overflow
+  const MAX_VISIBLE = 30;
+  const overflow = displayItems.length > MAX_VISIBLE ? displayItems.length - MAX_VISIBLE : 0;
+  const visible = overflow > 0 ? displayItems.slice(0, MAX_VISIBLE) : displayItems;
+
   return (
     <div className="flex flex-col items-center py-4">
-      {topFirst.map((item, i) => (
-        <motion.div key={item.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.06 }} style={{ marginTop: i === 0 ? 0 : -75, zIndex: topFirst.length - i }} className="relative">
-          <div className={cn("relative", i === 0 && "animate-pulse-subtle")}>
-            <img src={item.imageUri || CARD_BACK} alt={item.name} width={112} height={156} className={cn("rounded-lg shadow-lg border-2 block", i === 0 ? "border-mtg-gold shadow-mtg-gold/30" : "border-mtg-border/50")} onError={(e) => { (e.target as HTMLImageElement).src = CARD_BACK; }} />
+      {visible.map(({ item, isFirst, isLast }, i) => (
+        <motion.div key={item.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: Math.min(i, 10) * 0.04 }} style={{ marginTop: i === 0 ? 0 : -75, zIndex: visible.length - i }} className="relative">
+          <div className={cn("relative", isFirst && "animate-pulse-subtle")}>
+            <img
+              src={item.imageUri || CARD_BACK} alt={item.name} width={112} height={156}
+              className={cn("rounded-lg shadow-lg border-2 block",
+                isFirst ? "border-mtg-gold shadow-mtg-gold/30"
+                  : item.isStormCopy ? "border-purple-500/60"
+                  : "border-mtg-border/50"
+              )}
+              onError={(e) => { (e.target as HTMLImageElement).src = CARD_BACK; }}
+            />
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent rounded-b-lg px-1.5 py-1">
               <div className="text-[9px] font-display font-bold text-white leading-tight truncate">{item.name}</div>
               <div className="text-[8px] text-white/70">
                 {pLabel(gs, item.controller)}
-                {item.type === "triggered_ability" ? " \u00B7 Trigger" : item.type === "activated_ability" ? " \u00B7 Ability" : ""}
+                {item.isStormCopy ? ` · Storm Copy ${item.stormCopyIndex}` : item.type === "triggered_ability" ? " · Trigger" : item.type === "activated_ability" ? " · Ability" : ""}
+                {item.xValue !== undefined ? ` · X=${item.xValue}` : ""}
               </div>
             </div>
-            {/* Top item = last cast = resolves FIRST */}
-                {item.xValue !== undefined ? ` \u00B7 X=${item.xValue}` : ""}
-            {i === 0 && (
+            {isFirst && (
               <div className="absolute -top-2 -right-2 z-10">
                 <Badge color="#22c55e">&#8593; Resolves First</Badge>
               </div>
             )}
-            {/* Bottom item = first cast = resolves LAST */}
-            {stack.length > 1 && isLast(i) && (
+            {stack.length > 1 && isLast && overflow === 0 && (
               <div className="absolute -bottom-2 -right-2 z-10" style={{ marginBottom: "-8px" }}>
                 <Badge color="#6b7280">&#8595; Resolves Last</Badge>
               </div>
@@ -157,6 +179,11 @@ function VisualCardStack({ stack, gs }: { stack: EngineStackItem[]; gs: GameStat
           </div>
         </motion.div>
       ))}
+      {overflow > 0 && (
+        <div className="mt-2 px-3 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-[11px] text-mtg-text-dim text-center">
+          +{overflow} more items below (scroll to resolve)
+        </div>
+      )}
     </div>
   );
 }
@@ -185,8 +212,11 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
   const step = phase === "resolving" ? steps[cur] : null;
 
   function stepMeta(s: ResolutionStep) {
+    if (s.phase === "cast_announcement" && s.item.isStormCopy) return { badgeColor: "#8b5cf6", badgeLabel: `Storm Copy ${s.item.stormCopyIndex}`, borderClass: "border-purple-500", header: "Storm Copy" };
     if (s.phase === "cast_announcement") return { badgeColor: "#3b82f6", badgeLabel: "Cast", borderClass: "border-blue-500", header: "Spell Cast" };
+    if (s.phase === "trigger_announcement" && s.item.name.startsWith("Storm —")) return { badgeColor: "#8b5cf6", badgeLabel: "Storm", borderClass: "border-purple-500", header: "Storm Trigger Fires" };
     if (s.phase === "trigger_announcement") return { badgeColor: "#f59e0b", badgeLabel: "Triggered", borderClass: "border-amber-500", header: "Trigger Fires" };
+    if (s.item.isStormCopy) return { badgeColor: "#8b5cf6", badgeLabel: s.status === "fizzled" ? "Fizzled" : `Copy ${s.item.stormCopyIndex}`, borderClass: s.status === "fizzled" ? "border-red-500 opacity-60" : "border-purple-500", header: "Storm Copy Resolves" };
     return { badgeColor: s.status === "fizzled" ? "#dc2626" : "#22c55e", badgeLabel: s.status === "fizzled" ? "Fizzled" : "Resolved", borderClass: s.status === "fizzled" ? "border-red-500 opacity-60" : "border-green-500", header: "Resolves" };
   }
 
@@ -373,6 +403,10 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
   const [targetError, setTargetError] = useState("");
   const [selectedAbility, setSelectedAbility] = useState<ActivatedAbilityInfo | null>(null);
   const [xValue, setXValue] = useState<number>(1);
+  // Storm state
+  const [stormStep, setStormStep] = useState(false);
+  const [priorStormCount, setPriorStormCount] = useState(0);
+  const [pendingStormItem, setPendingStormItem] = useState<Omit<EngineStackItem, "id" | "timestamp"> | null>(null);
 
   const { query, setQuery, suggestions } = useCardAutocomplete();
   const { card, loading: cardLoading, fetchCard, clearCard } = useCardFetch();
@@ -390,6 +424,15 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
     : false;
   const showXInput = spellHasX || abilityHasX;
 
+  // Detect storm
+  const spellHasStorm = mode === "spell" && card
+    ? card.keywords.some((k) => k.toLowerCase() === "storm") || /(?:^|\n)storm(?:\n|$)/i.test(card.oracle_text || "")
+    : false;
+
+  // Current spells on the stack (auto-counted for storm)
+  const stackSpellCount = gs.stack.filter((s) => s.type === "spell").length;
+  const totalStormCount = stackSpellCount + priorStormCount;
+
   useEffect(() => {
     if (mode === "ability" && abilities.length === 1 && !selectedAbility) setSelectedAbility(abilities[0]);
   }, [abilities.length, mode, selectedAbility]);
@@ -397,6 +440,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
   const resetForm = () => {
     setShowForm(false); clearCard(); setQuery(""); setTargetError("");
     setSelectedAbility(null); setTarget(""); setXValue(1);
+    setStormStep(false); setPriorStormCount(0); setPendingStormItem(null);
   };
 
   const handleCast = () => {
@@ -404,13 +448,28 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
       if (!card) return;
       if (targetReq?.required && !target.trim()) { setTargetError(`Required: ${targetReq.description}`); return; }
       const targets = target.trim() ? [{ type: "permanent" as const, id: generateId(), name: target.trim(), isLegal: true }] : [];
-      onCast(cardToStackItem(card, controller, targets, showXInput ? xValue : undefined));
+      const item = cardToStackItem(card, controller, targets, showXInput ? xValue : undefined);
+      if (spellHasStorm) {
+        setPendingStormItem(item);
+        setPriorStormCount(0);
+        setStormStep(true);
+        return;
+      }
+      onCast(item);
     } else {
       if (!card || !selectedAbility) return;
       if (selectedAbility.requiresTarget && !target.trim()) { setTargetError(`Required: ${selectedAbility.targetDescription || "a target"}`); return; }
       const targets = target.trim() ? [{ type: "permanent" as const, id: generateId(), name: target.trim(), isLegal: true }] : [];
       onCast(abilityToStackItem(card, selectedAbility, controller, targets, showXInput ? xValue : undefined));
     }
+    resetForm();
+  };
+
+  const handleStormConfirm = () => {
+    if (!pendingStormItem) return;
+    onCast({ ...pendingStormItem, priorStormCount });
+    setStormStep(false);
+    setPendingStormItem(null);
     resetForm();
   };
 
@@ -485,14 +544,57 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
             {targetError && <div className="text-[10px] text-red-400 mt-1">{targetError}</div>}
           </div>
         )}
-        <div className="flex gap-2">
-          <Button onClick={handleCast} className="flex-1" size="sm" disabled={mode === "spell" ? !card : (!card || !selectedAbility)}>
-            {mode === "spell"
-              ? (card ? `Cast ${card.name}${showXInput ? ` (X=${xValue})` : ""}` : "Select a card")
-              : (selectedAbility ? `Activate${showXInput ? ` (X=${xValue})` : ""}` : "Select an ability")}
-          </Button>
-          <Button variant="ghost" onClick={resetForm} size="sm">Cancel</Button>
-        </div>
+        {/* Storm count dialog — shown inline when a storm spell is ready to cast */}
+        {stormStep && pendingStormItem ? (
+          <div className="space-y-2 p-3 bg-purple-900/20 border border-purple-500/40 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-purple-300 text-sm">&#9889;</span>
+              <span className="text-sm font-display font-bold text-purple-200">Storm — Set Storm Count</span>
+            </div>
+            <div className="text-[11px] text-purple-300/80 leading-relaxed">
+              Storm copies the spell for each spell cast before it this turn.
+            </div>
+            <div className="flex items-center justify-between text-xs text-mtg-text-dim">
+              <span>Spells currently on the stack:</span>
+              <span className="font-bold text-mtg-text">{stackSpellCount}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-mtg-text-dim flex-1">Spells cast earlier this turn (not on stack):</label>
+              <input
+                type="number"
+                min={0}
+                max={99}
+                value={priorStormCount}
+                onChange={(e) => setPriorStormCount(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-14 px-2 py-1 bg-mtg-surface border border-purple-500/50 rounded text-mtg-text text-sm font-bold text-center outline-none focus:border-purple-400"
+              />
+            </div>
+            <div className="flex items-center justify-between px-2 py-1.5 bg-purple-900/30 rounded text-xs">
+              <span className="text-purple-200 font-display font-semibold">Total storm count:</span>
+              <span className="text-purple-100 font-display font-bold text-sm">{totalStormCount}</span>
+            </div>
+            <div className="text-[11px] text-purple-300/70">
+              {totalStormCount > 0
+                ? `Storm will create ${totalStormCount} cop${totalStormCount !== 1 ? "ies" : "y"} of ${pendingStormItem.name}.`
+                : "Storm count is 0 — no copies will be created."}
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleStormConfirm} className="flex-1" size="sm">
+                Cast with Storm ({totalStormCount} cop{totalStormCount !== 1 ? "ies" : "y"})
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setStormStep(false); setPendingStormItem(null); }}>Back</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Button onClick={handleCast} className="flex-1" size="sm" disabled={mode === "spell" ? !card : (!card || !selectedAbility)}>
+              {mode === "spell"
+                ? (card ? `Cast ${card.name}${showXInput ? ` (X=${xValue})` : ""}${spellHasStorm ? " ⚡" : ""}` : "Select a card")
+                : (selectedAbility ? `Activate${showXInput ? ` (X=${xValue})` : ""}` : "Select an ability")}
+            </Button>
+            <Button variant="ghost" onClick={resetForm} size="sm">Cancel</Button>
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -548,7 +650,7 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
   const assignedTriggerIds = new Set<string>();
   for (let i = 0; i < beforeState.stack.length; i++) {
     const item = beforeState.stack[i];
-    if (item.type !== "triggered_ability") {
+    if (item.type !== "triggered_ability" && !item.isStormCopy) {
       announcementSteps.push({ phase: "cast_announcement", item, logEntries: [], status: "resolved" });
       // Any triggered_ability items immediately above this spell (before the next non-trigger) are its cast triggers
       for (let j = i + 1; j < beforeState.stack.length; j++) {

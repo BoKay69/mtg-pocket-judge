@@ -91,6 +91,12 @@ function hasSplitSecond(card: ScryfallCard): boolean {
   return (card.oracle_text || "").toLowerCase().includes("split second");
 }
 
+function hasStormKeyword(card: ScryfallCard): boolean {
+  if (card.keywords.some((k) => k.toLowerCase() === "storm")) return true;
+  // Fallback: look for "Storm" as a standalone keyword line in oracle text
+  return /(?:^|\n)storm(?:\n|$)/i.test(card.oracle_text || "");
+}
+
 // ─── Main Conversion Functions ───────────────────────────────────────────────
 
 /**
@@ -144,6 +150,8 @@ export function cardToStackItem(
     // Some cards have X in activated/modal costs described in oracle text
     /\{x\}/i.test(card.oracle_text || "");
 
+  const hasStorm = hasStormKeyword(card);
+
   return {
     type: "spell",
     spellType,
@@ -158,6 +166,7 @@ export function cardToStackItem(
     xValue: hasXCost ? xValue : undefined,
     basePower: card.power !== undefined && card.power !== null ? (parseInt(card.power) || 0) : undefined,
     baseToughness: card.toughness !== undefined && card.toughness !== null ? (parseInt(card.toughness) || 0) : undefined,
+    hasStorm: hasStorm || undefined,
   };
 }
 
