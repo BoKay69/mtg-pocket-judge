@@ -133,6 +133,14 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
 
   "Spell Types": [
     {
+      name: "Creature",
+      rule: "Can only be cast during your main phase when the stack is empty and you have priority. If the creature has flash, then it follows the same rules as 'Instant' spells. All creatures are affected by summoning sickness unless they have the ability, haste.",
+      example: "Arbor Elf is a creature spell. Cast it during your main phase when the stack is empty. This spell is affected by summoning sickness, since it doesn't have haste, so you will not be able to activate it until your next turn.",
+      tip: "Cards that let you cast spells 'as though they had flash' (like Vedalken Orrery) remove the timing restriction entirely.",
+      related: ["Deathtouch", "Defender", "Double Strike", "Firststrike", "Flash", "Flying", "Haste", "Hexproof", "Indestructable", "Lifelink", "Menace", "Reach", "Shroud", "Trample", "Vigilance", "Ward"]
+    },
+    
+    {
       name: "Instant",
       rule: "Can be cast any time you have priority — on your turn, opponent's turn, during combat, in response to other spells.",
       example:
