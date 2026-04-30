@@ -393,12 +393,27 @@ function checkDrawCondition(
 
   if (!controllerPasses) return false;
 
-  // ── Nth-card-this-turn check (e.g. "your third card each turn") ──────────
-  // Map ordinal words to numbers
   const ordinalMap: Record<string, number> = {
     first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
     sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
   };
+
+  // ── "except the first" — fires for ALL draws EXCEPT the Nth draw of the draw step ──
+  // e.g. Orcish Bowmasters: "except the first one they draw in each of their draw steps"
+  const exceptMatch = cond.match(/except\s+the\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)/i);
+  if (exceptMatch) {
+    const exceptN = ordinalMap[exceptMatch[1].toLowerCase()];
+    const isDrawStep = event.data?.isDrawStep as boolean | undefined;
+    const totalDrawn = (event.data?.totalDrawnThisTurn as number | undefined) ?? 0;
+    if (cond.includes("draw step")) {
+      // Only suppress the Nth card drawn during the actual draw step; all other draws trigger
+      return !(isDrawStep && totalDrawn === exceptN);
+    }
+    // Generic "except the Nth draw this turn"
+    return totalDrawn !== exceptN;
+  }
+
+  // ── Nth-card-this-turn check (e.g. "whenever you draw your third card each turn") ──
   const ordinalMatch = cond.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/);
   if (ordinalMatch) {
     const requiredN = ordinalMap[ordinalMatch[1]];

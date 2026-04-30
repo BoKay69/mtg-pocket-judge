@@ -11,10 +11,10 @@ import type { ScenarioPreset } from "@/data/presets";
 import { getMetaDecks } from "@/data/metaDecks";
 import type { ActivatedAbilityInfo } from "@/engine";
 import { Button, Card, Badge, SectionLabel } from "@/components/ui";
-import { useCardAutocomplete, useCardFetch } from "@/hooks";
+import { useCardAutocomplete, useCardFetch, useCardRulings } from "@/hooks";
 import { cn } from "@/lib/utils";
 import { fetchTokenImage } from "@/lib/scryfall";
-import type { ScryfallCard } from "@/types";
+import type { ScryfallCard, ScryfallRuling } from "@/types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -491,25 +491,54 @@ function TargetPicker({
 
 // ─── Card Preview with Ban Check ─────────────────────────────────────────────
 
-function CardPreview({ card, targetReq, format }: { card: ScryfallCard; targetReq: ReturnType<typeof detectTargetRequirement>; format?: string }) {
+function CardPreview({ card, targetReq, format, rulings }: { card: ScryfallCard; targetReq: ReturnType<typeof detectTargetRequirement>; format?: string; rulings?: ScryfallRuling[] }) {
+  const [rulingsOpen, setRulingsOpen] = useState(false);
   const legality = format && card.legalities ? (card.legalities as Record<string, string>)[format] : null;
   const isBanned = legality === "banned";
   const isRestricted = legality === "restricted";
   const isNotLegal = legality === "not_legal";
 
   return (
-    <div className={cn("flex gap-2.5 p-2 bg-mtg-surface rounded-lg border", isBanned ? "border-red-500/60" : "border-mtg-border")}>
-      {card.image_uris?.small && <img src={card.image_uris.small} alt={card.name} className="w-16 rounded flex-shrink-0" />}
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-display font-bold text-mtg-text">{card.name}</div>
-        <div className="text-[10px] text-mtg-text-muted">{card.type_line}</div>
-        {card.power && <div className="text-[10px] text-mtg-text-dim">{card.power}/{card.toughness}</div>}
-        {isBanned && <div className="mt-1 px-2 py-1 bg-red-500/15 border border-red-500/30 rounded text-xs text-red-400 font-bold">{"\u26D4"} BANNED in {format}</div>}
-        {isRestricted && <div className="mt-1 px-2 py-1 bg-amber-500/15 border border-amber-500/30 rounded text-xs text-amber-400 font-bold">{"\u26A0"} RESTRICTED in {format}</div>}
-        {isNotLegal && !isBanned && <div className="mt-1 text-[10px] text-gray-400">Not legal in {format}</div>}
-        {targetReq && <div className="mt-1 text-[10px] text-red-400 font-bold">{"\u{1F3AF}"} {targetReq.description}</div>}
-        {!targetReq && !isBanned && card.oracle_text && <div className="text-[10px] text-mtg-text-dim mt-1 line-clamp-2">{card.oracle_text}</div>}
+    <div className={cn("bg-mtg-surface rounded-lg border", isBanned ? "border-red-500/60" : "border-mtg-border")}>
+      <div className="flex gap-2.5 p-2">
+        {card.image_uris?.small && <img src={card.image_uris.small} alt={card.name} className="w-16 rounded flex-shrink-0" />}
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-display font-bold text-mtg-text">{card.name}</div>
+          <div className="text-[10px] text-mtg-text-muted">{card.type_line}</div>
+          {card.power && <div className="text-[10px] text-mtg-text-dim">{card.power}/{card.toughness}</div>}
+          {isBanned && <div className="mt-1 px-2 py-1 bg-red-500/15 border border-red-500/30 rounded text-xs text-red-400 font-bold">{"\u26D4"} BANNED in {format}</div>}
+          {isRestricted && <div className="mt-1 px-2 py-1 bg-amber-500/15 border border-amber-500/30 rounded text-xs text-amber-400 font-bold">{"\u26A0"} RESTRICTED in {format}</div>}
+          {isNotLegal && !isBanned && <div className="mt-1 text-[10px] text-gray-400">Not legal in {format}</div>}
+          {targetReq && <div className="mt-1 text-[10px] text-red-400 font-bold">{"\u{1F3AF}"} {targetReq.description}</div>}
+          {!targetReq && !isBanned && card.oracle_text && <div className="text-[10px] text-mtg-text-dim mt-1 line-clamp-2">{card.oracle_text}</div>}
+        </div>
       </div>
+      {rulings && rulings.length > 0 && (
+        <div className="px-2 pb-2 border-t border-mtg-border/40 pt-1.5">
+          <button
+            onClick={() => setRulingsOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-[10px] text-mtg-text-muted hover:text-mtg-gold transition-colors font-display font-semibold w-full"
+          >
+            <span>\uD83D\uDCDC</span>
+            <span>{rulings.length} Official Ruling{rulings.length !== 1 ? "s" : ""}</span>
+            <span className={cn("ml-auto transition-transform text-[8px]", rulingsOpen && "rotate-180")}>\u25BC</span>
+          </button>
+          <AnimatePresence>
+            {rulingsOpen && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                <div className="mt-1.5 space-y-2 max-h-40 overflow-y-auto">
+                  {rulings.map((r, i) => (
+                    <div key={i} className="text-[9px] leading-relaxed border-b border-mtg-border/30 last:border-0 pb-1.5 last:pb-0">
+                      <div className="text-mtg-text-dim font-semibold uppercase tracking-wide">{r.published_at} \u00B7 {r.source === "wotc" ? "WotC" : "Scryfall"}</div>
+                      <div className="text-mtg-text-muted mt-0.5">{r.comment}</div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
     </div>
   );
 }
@@ -521,6 +550,7 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
   const [controller, setController] = useState<PlayerId>("player_a");
   const { query, setQuery, suggestions } = useCardAutocomplete();
   const { card, loading: cardLoading, fetchCard, clearCard } = useCardFetch();
+  const { rulings } = useCardRulings(card?.id ?? null);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   if (!showForm) return <button onClick={() => setShowForm(true)} className="w-full py-2.5 text-sm text-mtg-text-dim hover:text-mtg-gold border border-dashed border-mtg-border rounded-lg transition-colors font-display">+ Add Permanent Already in Play (Board Setup)</button>;
@@ -538,7 +568,7 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
             </motion.div>
           )}</AnimatePresence>
         </div>
-        {card && <CardPreview card={card} targetReq={null} format={gs.format} />}
+        {card && <CardPreview card={card} targetReq={null} format={gs.format} rulings={rulings} />}
         <select value={controller} onChange={(e) => setController(e.target.value as PlayerId)} className="w-full px-2.5 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-mtg-text text-sm outline-none">
           {gs.playerOrder.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
         </select>
@@ -553,7 +583,12 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
 
 // ─── Cast Spell / Activate Ability Form ──────────────────────────────────────
 
-function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: Omit<EngineStackItem, "id" | "timestamp">) => void; }) {
+function isTriggerRuling(comment: string): boolean {
+  const lower = comment.toLowerCase();
+  return lower.includes("trigger") || lower.includes("whenever") || lower.includes("at the beginning of") || lower.includes("stack");
+}
+
+function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: Omit<EngineStackItem, "id" | "timestamp">, triggerRulings?: ScryfallRuling[]) => void; }) {
   const [showForm, setShowForm] = useState(false);
   const [mode, setMode] = useState<"spell" | "ability">("spell");
   const [controller, setController] = useState<PlayerId>(gs.playerOrder[0]);
@@ -568,6 +603,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
 
   const { query, setQuery, suggestions } = useCardAutocomplete();
   const { card, loading: cardLoading, fetchCard, clearCard } = useCardFetch();
+  const { rulings } = useCardRulings(card?.id ?? null);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const targetReq = mode === "spell" && card ? detectTargetRequirement(card) : null;
@@ -602,6 +638,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
   };
 
   const handleCast = () => {
+    const triggerRulings = rulings.filter((r) => isTriggerRuling(r.comment));
     if (mode === "spell") {
       if (!card) return;
       if (targetReq?.required && !target.trim()) { setTargetError(`Required: ${targetReq.description}`); return; }
@@ -613,19 +650,20 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
         setStormStep(true);
         return;
       }
-      onCast(item);
+      onCast(item, triggerRulings.length > 0 ? triggerRulings : undefined);
     } else {
       if (!card || !selectedAbility) return;
       if (selectedAbility.requiresTarget && !target.trim()) { setTargetError(`Required: ${selectedAbility.targetDescription || "a target"}`); return; }
       const targets = target.trim() ? [{ type: "permanent" as const, id: generateId(), name: target.trim(), isLegal: true }] : [];
-      onCast(abilityToStackItem(card, selectedAbility, controller, targets, showXInput ? xValue : undefined));
+      onCast(abilityToStackItem(card, selectedAbility, controller, targets, showXInput ? xValue : undefined), triggerRulings.length > 0 ? triggerRulings : undefined);
     }
     resetForm();
   };
 
   const handleStormConfirm = () => {
     if (!pendingStormItem) return;
-    onCast({ ...pendingStormItem, priorStormCount });
+    const triggerRulings = rulings.filter((r) => isTriggerRuling(r.comment));
+    onCast({ ...pendingStormItem, priorStormCount }, triggerRulings.length > 0 ? triggerRulings : undefined);
     setStormStep(false);
     setPendingStormItem(null);
     resetForm();
@@ -655,7 +693,7 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
             </motion.div>
           )}</AnimatePresence>
         </div>
-        {card && <CardPreview card={card} targetReq={mode === "spell" ? targetReq : null} format={gs.format} />}
+        {card && <CardPreview card={card} targetReq={mode === "spell" ? targetReq : null} format={gs.format} rulings={rulings} />}
         {mode === "ability" && card && abilities.length > 1 && !selectedAbility && (
           <div className="space-y-1.5">
             <div className="text-xs font-display font-bold text-mtg-gold">Which ability?</div>
@@ -1043,11 +1081,27 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
     setGs(finalState);
   };
 
-  const handleCast = (item: Omit<EngineStackItem, "id" | "timestamp">) => {
+  const handleCast = (item: Omit<EngineStackItem, "id" | "timestamp">, triggerRulings?: ScryfallRuling[]) => {
     if (item.type === "activated_ability") {
       dispatch({ type: "activate_ability", ability: item });
     } else {
       dispatch({ type: "cast_spell", spell: item });
+    }
+    if (triggerRulings && triggerRulings.length > 0) {
+      setGs((prev) => ({
+        ...prev,
+        actionLog: [
+          ...prev.actionLog,
+          {
+            id: generateId(),
+            timestamp: prev.stepCount,
+            type: "explanation" as const,
+            text: `📜 Rulings — ${item.name} (trigger behavior)`,
+            detail: triggerRulings.map((r) => `[${r.published_at} · ${r.source === "wotc" ? "WotC" : "Scryfall"}] ${r.comment}`).join("\n\n"),
+            highlight: true,
+          },
+        ],
+      }));
     }
   };
 

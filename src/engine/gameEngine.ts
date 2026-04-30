@@ -537,9 +537,11 @@ function parseAmassFromEffect(effect: string, xValue?: number): { count: number;
   const m = effect.match(/\bamass\s+(?:([A-Za-z]+)\s+)?(\d+|x)\b/i);
   if (!m) return null;
   const rawType = m[1];
-  const type = rawType
+  let type = rawType
     ? rawType.charAt(0).toUpperCase() + rawType.slice(1).toLowerCase()
     : "Zombie";
+  // Normalize plural creature types to singular: "Orcs" → "Orc", "Zombies" → "Zombie"
+  type = type.replace(/ies$/i, "y").replace(/s$/i, "");
   const count = resolveCount(m[2], xValue);
   return { count, type };
 }
@@ -791,6 +793,10 @@ function resolveTopOfStack(state: GameState): GameState {
     // Creature/artifact/enchantment/planeswalker enters the battlefield
     handlePermanentEnters(state, item);
   } else if (item.effect) {
+    // MTG rule: triggered abilities caused by a spell's effects wait until the spell
+    // finishes resolving before going on the stack. Collect them here and place at the end.
+    const deferredTriggers: Array<{ triggers: TriggerDefinition[]; event: GameEvent }> = [];
+
     // ── Draw effects ──────────────────────────────────────────────────────────
     const drawTargets = parseDrawsFromEffect(item.effect, state, item.controller, item.xValue);
     for (const { player, count } of drawTargets) {
@@ -812,12 +818,12 @@ function resolveTopOfStack(state: GameState): GameState {
           timestamp: state.stepCount,
           sourceController: player,
           sourceName: playerObj.label,
-          data: { source: item.name, drawNumber: i + 1, totalDrawnThisTurn: totalDrawn },
+          data: { source: item.name, drawNumber: i + 1, totalDrawnThisTurn: totalDrawn, isDrawStep: false },
         };
         state.eventLog.push(drawEvent);
         const drawTriggers = detectTriggers(state, drawEvent);
         if (drawTriggers.length > 0) {
-          placeTriggers(state, drawTriggers, drawEvent);
+          deferredTriggers.push({ triggers: drawTriggers, event: drawEvent });
         }
       }
     }
@@ -836,7 +842,6 @@ function resolveTopOfStack(state: GameState): GameState {
         true
       );
 
-      // Fire tokens_created event first — triggers "whenever a token is created"
       const tokensEvent: GameEvent = {
         id: generateId(),
         type: "tokens_created",
@@ -853,7 +858,7 @@ function resolveTopOfStack(state: GameState): GameState {
       state.eventLog.push(tokensEvent);
       const tokenTriggers = detectTriggers(state, tokensEvent);
       if (tokenTriggers.length > 0) {
-        placeTriggers(state, tokenTriggers, tokensEvent);
+        deferredTriggers.push({ triggers: tokenTriggers, event: tokensEvent });
       }
 
       // Create each token as a Permanent and fire enters_battlefield events.
@@ -880,7 +885,7 @@ function resolveTopOfStack(state: GameState): GameState {
         state.eventLog.push(etbEvent);
         const etbTriggers = detectTriggers(state, etbEvent);
         if (etbTriggers.length > 0) {
-          placeTriggers(state, etbTriggers, etbEvent);
+          deferredTriggers.push({ triggers: etbTriggers, event: etbEvent });
         }
       }
     }
@@ -907,7 +912,7 @@ function resolveTopOfStack(state: GameState): GameState {
       state.eventLog.push(dmgEvent);
       const dmgTriggers = detectTriggers(state, dmgEvent);
       if (dmgTriggers.length > 0) {
-        placeTriggers(state, dmgTriggers, dmgEvent);
+        deferredTriggers.push({ triggers: dmgTriggers, event: dmgEvent });
       }
     }
 
@@ -931,7 +936,7 @@ function resolveTopOfStack(state: GameState): GameState {
       state.eventLog.push(lifeEvent);
       const lifeTriggers = detectTriggers(state, lifeEvent);
       if (lifeTriggers.length > 0) {
-        placeTriggers(state, lifeTriggers, lifeEvent);
+        deferredTriggers.push({ triggers: lifeTriggers, event: lifeEvent });
       }
     }
 
@@ -956,6 +961,11 @@ function resolveTopOfStack(state: GameState): GameState {
           ? item.eventSourceController
           : item.controller;
       handleAmass(state, amassController, amassResult.count, amassResult.type, item.name);
+    }
+
+    // ── Place all deferred triggers now that every effect has been processed ──
+    for (const { triggers, event } of deferredTriggers) {
+      placeTriggers(state, triggers, event);
     }
   }
 
@@ -1374,7 +1384,7 @@ function advanceStep(state: GameState): GameState {
       timestamp: state.stepCount,
       sourceController: ap,
       sourceName: state.players[ap]!.label,
-      data: { drawNumber: 1, totalDrawnThisTurn: totalDrawn },
+      data: { drawNumber: 1, totalDrawnThisTurn: totalDrawn, isDrawStep: true },
     };
     state.eventLog.push(drawEvent);
     addLog(state, "game_event", state.activePlayer,
@@ -1623,7 +1633,7 @@ function handleDrawCard(
       timestamp: state.stepCount,
       sourceController: player,
       sourceName: playerObj.label,
-      data: { drawNumber: i + 1, totalDrawnThisTurn: totalDrawn },
+      data: { drawNumber: i + 1, totalDrawnThisTurn: totalDrawn, isDrawStep: false },
     };
     state.eventLog.push(drawEvent);
 

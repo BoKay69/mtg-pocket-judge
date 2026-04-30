@@ -126,6 +126,7 @@ export async function getRandomCard(query?: string): Promise<ScryfallCard> {
 // Static overrides for tokens whose Scryfall search returns wrong art
 const STATIC_TOKEN_IMAGES: Record<string, string> = {
   "orc army": "/token-art/orc-army.jpg",
+  "orcs army": "/token-art/orc-army.jpg",
 };
 
 export async function fetchTokenImage(tokenName: string): Promise<string | null> {

@@ -91,7 +91,7 @@ export function useCardAutocomplete() {
 
 // ─── Full card fetch hook ────────────────────────────────────────────────────
 
-import type { ScryfallCard } from "@/types";
+import type { ScryfallCard, ScryfallRuling } from "@/types";
 
 export function useCardFetch() {
   const [card, setCard] = useState<ScryfallCard | null>(null);
@@ -140,4 +140,39 @@ export function useCardFetch() {
   }, []);
 
   return { card, loading, error, fetchCard, clearCard };
+}
+
+// ─── Card rulings hook ───────────────────────────────────────────────────────
+
+export function useCardRulings(cardId: string | null | undefined) {
+  const [rulings, setRulings] = useState<ScryfallRuling[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!cardId) {
+      setRulings([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/rulings?cardId=${encodeURIComponent(cardId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) {
+          setRulings(data.rulings ?? []);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRulings([]);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cardId]);
+
+  return { rulings, loading };
 }
