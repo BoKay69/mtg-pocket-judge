@@ -356,4 +356,5 @@ export type UserAction =
   | { type: "draw_card"; player: PlayerId; count?: number }
   | { type: "transform_permanent"; permanentId: string }
   | { type: "set_day_night"; state: "day" | "night" | null }
+  | { type: "set_stack_target"; stackItemId: string; targetName: string; targetId?: string }
   | { type: "undo" };

@@ -387,6 +387,108 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
   );
 }
 
+// ─── Target Picker ───────────────────────────────────────────────────────────
+
+interface TargetOption {
+  id: string;
+  name: string;
+  detail: string;
+}
+
+function TargetPicker({
+  gs,
+  value,
+  onChange,
+  required,
+  label,
+}: {
+  gs: GameState;
+  value: string;
+  onChange: (name: string, id: string) => void;
+  required?: boolean;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+
+  const options: TargetOption[] = [
+    ...gs.playerOrder.map((pid) => ({
+      id: pid,
+      name: gs.players[pid]!.label,
+      detail: `Player · ${gs.players[pid]!.life} life`,
+    })),
+    ...gs.battlefield.map((p) => ({
+      id: p.id,
+      name: p.name,
+      detail: `${gs.players[p.controller]?.label ?? p.controller} · ${p.types.join("/")}${p.basePower !== undefined ? ` · ${p.currentPower}/${p.currentToughness}` : ""}`,
+    })),
+  ];
+
+  const filtered = query.trim()
+    ? options.filter(
+        (o) =>
+          o.name.toLowerCase().includes(query.toLowerCase()) ||
+          o.detail.toLowerCase().includes(query.toLowerCase())
+      )
+    : options;
+
+  const handleSelect = (opt: TargetOption) => {
+    setQuery(opt.name);
+    onChange(opt.name, opt.id);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] pointer-events-none select-none">🎯</span>
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onChange(e.target.value, "");
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={required ? `${label || "Any target"} (required)` : `${label || "Target"} (optional)`}
+          className={cn(
+            "w-full pl-7 pr-3 py-1.5 bg-mtg-surface border rounded-lg text-mtg-text text-sm font-body outline-none placeholder:text-mtg-text-muted",
+            required && !value
+              ? "border-amber-600/60 focus:border-amber-500"
+              : "border-mtg-border focus:border-mtg-gold/50"
+          )}
+        />
+      </div>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="absolute z-50 top-full mt-1 left-0 right-0 bg-mtg-surface border border-mtg-border rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
+          >
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-[11px] text-mtg-text-muted italic">No targets found</div>
+            ) : (
+              filtered.map((opt) => (
+                <button
+                  key={opt.id}
+                  onMouseDown={() => handleSelect(opt)}
+                  className="w-full text-left px-3 py-2 hover:bg-mtg-surface-hover border-b border-mtg-border/50 last:border-0 transition-colors"
+                >
+                  <div className="text-xs font-display font-semibold text-mtg-text">{opt.name}</div>
+                  <div className="text-[10px] text-mtg-text-muted">{opt.detail}</div>
+                </button>
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ─── Card Preview with Ban Check ─────────────────────────────────────────────
 
 function CardPreview({ card, targetReq, format }: { card: ScryfallCard; targetReq: ReturnType<typeof detectTargetRequirement>; format?: string }) {
@@ -451,7 +553,7 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
 
 // ─── Cast Spell / Activate Ability Form ──────────────────────────────────────
 
-function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: Omit<EngineStackItem, "id" | "timestamp">) => void }) {
+function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: Omit<EngineStackItem, "id" | "timestamp">) => void; }) {
   const [showForm, setShowForm] = useState(false);
   const [mode, setMode] = useState<"spell" | "ability">("spell");
   const [controller, setController] = useState<PlayerId>(gs.playerOrder[0]);
@@ -594,9 +696,13 @@ function AddSpellOrAbilityForm({ gs, onCast }: { gs: GameState; onCast: (item: O
         )}
         {card && (mode === "spell" || selectedAbility) && (
           <div>
-            <input value={target} onChange={(e) => { setTarget(e.target.value); setTargetError(""); }}
-              placeholder={targetReq?.required ? `\u{1F3AF} ${targetReq.description} (required)` : selectedAbility?.requiresTarget ? `\u{1F3AF} ${selectedAbility.targetDescription} (required)` : "Target (optional)"}
-              className={cn("w-full px-3 py-1.5 bg-mtg-surface border rounded-lg text-mtg-text text-sm font-body outline-none placeholder:text-mtg-text-muted", targetError ? "border-red-500" : (targetReq?.required || selectedAbility?.requiresTarget) ? "border-amber-600/50" : "border-mtg-border")} />
+            <TargetPicker
+              gs={gs}
+              value={target}
+              onChange={(name) => { setTarget(name); setTargetError(""); }}
+              required={!!(targetReq?.required || selectedAbility?.requiresTarget)}
+              label={targetReq?.description || selectedAbility?.targetDescription || undefined}
+            />
             {targetError && <div className="text-[10px] text-red-400 mt-1">{targetError}</div>}
           </div>
         )}
@@ -938,13 +1044,16 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   };
 
   const handleCast = (item: Omit<EngineStackItem, "id" | "timestamp">) => {
-    // Route activated abilities correctly
     if (item.type === "activated_ability") {
       dispatch({ type: "activate_ability", ability: item });
     } else {
       dispatch({ type: "cast_spell", spell: item });
     }
   };
+
+  const handleSetTarget = useCallback((itemId: string, targetName: string, targetId: string) => {
+    dispatch({ type: "set_stack_target", stackItemId: itemId, targetName, targetId });
+  }, [dispatch]);
 
   return (
     <div className="space-y-3">
@@ -1063,6 +1172,46 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           Spells and abilities resolve <span className="text-mtg-text font-semibold">Last In, First Out</span> — the most recently cast item resolves first.
         </p>
         <VisualCardStack stack={gs.stack} gs={gs} />
+
+        {/* \u2500\u2500 Required Targets \u2014 shown for any stack item that still needs one \u2500\u2500 */}
+        {gs.stack.some((item) => item.requiresTarget && item.targets.length === 0) && (
+          <div className="mt-2 p-3 bg-red-950/30 border border-red-500/30 rounded-xl space-y-3">
+            <div className="text-xs font-display font-bold text-red-400 flex items-center gap-1.5">
+              <span>\uD83C\uDFAF</span>
+              <span>Required Targets \u2014 Declare before resolving</span>
+            </div>
+            {gs.stack
+              .filter((item) => item.requiresTarget && item.targets.length === 0)
+              .map((item) => {
+                const targetLabel =
+                  item.effect?.match(/any target|that player|that opponent|target [\w\s]+/i)?.[0]?.replace(/^target /i, "") ?? "any target";
+                return (
+                  <div key={item.id} className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <img
+                        src={item.imageUri || CARD_BACK}
+                        alt={item.name}
+                        className="w-7 h-9 rounded object-cover flex-shrink-0 border border-mtg-border/50"
+                        onError={(e) => { (e.target as HTMLImageElement).src = CARD_BACK; }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-display font-semibold text-mtg-text leading-tight">{item.name}</div>
+                        <div className="text-[10px] text-mtg-text-muted">{pLabel(gs, item.controller)}</div>
+                      </div>
+                    </div>
+                    <TargetPicker
+                      gs={gs}
+                      value=""
+                      onChange={(name, id) => handleSetTarget(item.id, name, id)}
+                      required
+                      label={targetLabel}
+                    />
+                  </div>
+                );
+              })}
+          </div>
+        )}
+
         <div className="mt-2 space-y-2">
           <AddSpellOrAbilityForm gs={gs} onCast={handleCast} />
           {gs.stack.length > 0 && (

@@ -150,6 +150,8 @@ export function processAction(
       return handleTransformPermanent(state, action.permanentId);
     case "set_day_night":
       return handleSetDayNight(state, action.state);
+    case "set_stack_target":
+      return handleSetStackTarget(state, action.stackItemId, action.targetName, action.targetId);
     case "undo":
       return undo() ?? state;
     default:
@@ -490,8 +492,8 @@ function parseDamageFromEffect(effect: string, xValue?: number): DamageResult[] 
   if (!lower.includes("damage")) return [];
 
   const results: DamageResult[] = [];
-  // Match "deal/deals N damage to <target>" or "N damage to <target>"
-  const regex = /deal[s]?\s+(\d+|x)\s+damage(?:\s+to\s+(any target|each opponent|each player|each creature|target [a-z\s]+?))?(?:[.,]|$)/gi;
+  // Match "deal/deals N damage to <target>" — lookahead for terminators so "and" isn't consumed
+  const regex = /deal[s]?\s+(\d+|x)\s+damage(?:\s+to\s+(any target|each opponent|each player|each creature|that player|that opponent|target [a-z\s]+?))?(?=[.,]|\s+and\b|$)/gi;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(lower)) !== null) {
     const amount = resolveCount(match[1], xValue);
@@ -822,7 +824,11 @@ function resolveTopOfStack(state: GameState): GameState {
 
     // ── Token creation effects ────────────────────────────────────────────────
     const tokenResult = parseTokensFromEffect(item.effect, item.xValue);
-    if (tokenResult) {
+    // Skip army token creation when amass is also present — amass handles army creation internally
+    const isArmyAmass = tokenResult !== null &&
+      tokenResult.description.toLowerCase().includes("army") &&
+      item.effect.toLowerCase().includes("amass");
+    if (tokenResult && !isArmyAmass) {
       const controllerPlayer = state.players[item.controller]!;
       addLog(state, "game_event", item.controller,
         `${controllerPlayer.label} creates ${tokenResult.count} ${tokenResult.description}`,
@@ -1180,7 +1186,10 @@ function effectRequiresTarget(effect: string): boolean {
     lower.includes("target artifact") ||
     lower.includes("target enchantment") ||
     lower.includes("target land") ||
-    lower.includes("target spell")
+    lower.includes("target spell") ||
+    // "that player" / "that opponent" — trigger references whoever triggered it (e.g. Orcish Bowmasters)
+    (lower.includes("that player") && lower.includes("damage")) ||
+    (lower.includes("that opponent") && lower.includes("damage"))
   );
 }
 
@@ -1265,6 +1274,29 @@ function placeTriggers(
       true
     );
   }
+}
+
+// ─── Set Stack Item Target ───────────────────────────────────────────────────
+
+function handleSetStackTarget(
+  state: GameState,
+  stackItemId: string,
+  targetName: string,
+  targetId?: string
+): GameState {
+  const item = state.stack.find((s) => s.id === stackItemId);
+  if (!item) return state;
+  item.targets = [{
+    type: "permanent",
+    id: targetId || generateId(),
+    name: targetName,
+    isLegal: true,
+  }];
+  addLog(state, "explanation", item.controller,
+    `Target declared: ${item.name} → ${targetName}`,
+    `${targetName} is now the target of ${item.name}.`
+  );
+  return state;
 }
 
 // ─── Advance Phase/Step ──────────────────────────────────────────────────────
@@ -1724,8 +1756,8 @@ function applyTriggerTransformEffect(
       }
       applyTransformToPermanent(state, sourcePerm);
     }
-  } else if (/\btransform\b/i.test(effect)) {
-    // Unconditional transform (no counter condition)
+  } else if (/\btransform/i.test(effect)) {
+    // Unconditional transform — matches "transform" and "transformed"
     applyTransformToPermanent(state, sourcePerm);
   }
 }

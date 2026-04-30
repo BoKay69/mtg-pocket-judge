@@ -543,11 +543,35 @@ export function parseTriggersFromOracle(
     const event = classifyTriggerEvent(conditionPart);
     if (!event) continue;
 
+    // Detect "and whenever/when <secondaryCondition>, <sharedEffect>" pattern
+    // e.g. Orcish Bowmasters: "When X enters the battlefield, and whenever an opponent draws a card, effect"
+    const andWhenMatch = effectPart.match(/^and\s+(when(?:ever)?\s+.+?),\s*(.+)/i);
+    let primaryEffect = effectPart;
+    if (andWhenMatch) {
+      const secondaryCondRaw = andWhenMatch[1].trim();
+      const sharedEffect = andWhenMatch[2].trim();
+      // Primary trigger gets just the shared effect
+      primaryEffect = sharedEffect;
+      // Create secondary trigger for the "and whenever" part
+      const secondaryEvent = classifyTriggerEvent(secondaryCondRaw.toLowerCase());
+      if (secondaryEvent) {
+        triggers.push({
+          id: generateId(),
+          event: secondaryEvent,
+          condition: secondaryCondRaw,
+          effect: sharedEffect,
+          sourceId: permanentId,
+          sourceName: permanentName,
+          controller,
+        });
+      }
+    }
+
     triggers.push({
       id: generateId(),
       event,
       condition: conditionPart.trim(),
-      effect: effectPart,
+      effect: primaryEffect,
       sourceId: permanentId,
       sourceName: permanentName,
       controller,

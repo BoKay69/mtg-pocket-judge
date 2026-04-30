@@ -133,6 +133,14 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
 
   "Spell Types": [
     {
+      name: "Amass Orcs",
+      rule: "To amass Orcs N: if you don't control an Army, create a 0/0 black Orc Army creature token. Then put N +1/+1 counters on an Army you control. (Amass always uses the existing Army if you have one — you can only ever have one Army on the battlefield at a time.)",
+      example:
+        "Orcish Bowmasters triggers when an opponent draws a card: deal 1 damage to any target, then that player amasses Orcs 1. If they have no Army, a 0/0 Orc Army token is created, then gets 1 +1/+1 counter, becoming a 1/1. The next time they amass, the counter goes on that same Army, growing it.",
+      tip: "Army is a legendary creature type — each player can only have one. If you control an Army when amassing, the counters always go on that existing Army rather than creating a new token. Orcish Bowmasters triggers once per card drawn, so drawing 3 cards (e.g. from Brainstorm) triggers it 3 times: 3 damage spread across targets, 3 +1/+1 counters going to the Orc Army.",
+      related: ["Creature", "Instant"],
+    },
+    {
       name: "Creature",
       rule: "Can only be cast during your main phase when the stack is empty and you have priority. If the creature has flash, then it follows the same rules as 'Instant' spells. All creatures are affected by summoning sickness unless they have the ability, haste.",
       example: "Arbor Elf is a creature spell. Cast it during your main phase when the stack is empty. This spell is affected by summoning sickness, since it doesn't have haste, so you will not be able to activate it until your next turn.",

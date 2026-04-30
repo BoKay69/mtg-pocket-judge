@@ -123,33 +123,54 @@ export async function getRandomCard(query?: string): Promise<ScryfallCard> {
 
 // ─── Token image lookup ───────────────────────────────────────────────────────
 
+// Static overrides for tokens whose Scryfall search returns wrong art
+const STATIC_TOKEN_IMAGES: Record<string, string> = {
+  "orc army": "/token-art/orc-army.jpg",
+};
+
 export async function fetchTokenImage(tokenName: string): Promise<string | null> {
   // Strip " Token" suffix (our engine appends it, Scryfall uses just the subtype)
   const searchName = tokenName.replace(/\s+Token$/i, "").trim();
 
+  const staticOverride = STATIC_TOKEN_IMAGES[searchName.toLowerCase()];
+  if (staticOverride) return staticOverride;
+
+  const extractImage = (card: ScryfallCard): string | null =>
+    card.image_uris?.normal ??
+    card.image_uris?.small ??
+    card.card_faces?.[0]?.image_uris?.normal ??
+    card.card_faces?.[0]?.image_uris?.small ??
+    null;
+
   const tryFetch = async (q: string): Promise<string | null> => {
-    const params = new URLSearchParams({ q, include_extras: "true", order: "released" });
-    const data = await scryfallFetch<{ data: ScryfallCard[] }>(`/cards/search?${params}`);
-    const card = data.data?.[0];
-    if (!card) return null;
-    return (
-      card.image_uris?.normal ??
-      card.image_uris?.small ??
-      card.card_faces?.[0]?.image_uris?.normal ??
-      card.card_faces?.[0]?.image_uris?.small ??
-      null
-    );
+    try {
+      const params = new URLSearchParams({ q, include_extras: "true", order: "released" });
+      const data = await scryfallFetch<{ data: ScryfallCard[] }>(`/cards/search?${params}`);
+      const card = data.data?.[0];
+      return card ? extractImage(card) : null;
+    } catch {
+      return null;
+    }
   };
 
-  try {
-    // First try exact name match
-    const exact = await tryFetch(`type:token !"${searchName}"`);
-    if (exact) return exact;
-    // Fall back to multi-word subtype search (e.g. "Orc Army" → t:orc t:army)
-    // Scryfall uses separate subtypes, so phrase-quoting a multi-word name doesn't work
-    const typeSearch = searchName.toLowerCase().split(/\s+/).map(w => `t:${w}`).join(" ");
-    return await tryFetch(`type:token ${typeSearch}`);
-  } catch {
-    return null;
+  // 1. Exact token name match
+  const exact = await tryFetch(`type:token !"${searchName}"`);
+  if (exact) return exact;
+
+  // 2. Fuzzy name search (catches multi-word names Scryfall stores differently)
+  const fuzzy = await tryFetch(`type:token name:"${searchName}"`);
+  if (fuzzy) return fuzzy;
+
+  // 3. Subtype search — each word as a subtype (e.g. "Orc Army" → t:orc t:army)
+  const words = searchName.toLowerCase().split(/\s+/);
+  if (words.length > 1) {
+    const subtypeSearch = words.map((w) => `t:${w}`).join(" ");
+    const bySubtype = await tryFetch(`type:token ${subtypeSearch}`);
+    if (bySubtype) return bySubtype;
   }
+
+  // 4. Single last-word subtype fallback (e.g. "Army" from "Orc Army")
+  const lastWord = words[words.length - 1];
+  const single = await tryFetch(`type:token t:${lastWord}`);
+  return single;
 }
