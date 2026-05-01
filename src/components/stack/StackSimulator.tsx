@@ -251,6 +251,7 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
   const [phase, setPhase] = useState<"confirm" | "resolving">("confirm");
   const [cur, setCur] = useState(0);
   const [auto, setAuto] = useState(false);
+  const [targetChoices, setTargetChoices] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (auto && phase === "resolving" && cur < steps.length - 1) { const t = setTimeout(() => setCur(p => p + 1), 2200); return () => clearTimeout(t); }
@@ -278,22 +279,36 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
               <div className="text-sm font-display font-bold text-mtg-gold">Stack to Resolve ({resolutionSteps.length} item{resolutionSteps.length !== 1 && "s"})</div>
               <div className="text-xs text-mtg-text-muted mt-0.5">Resolves top to bottom (Last In, First Out)</div>
             </div>
-            <div className="px-4 py-3 space-y-2 max-h-[60vh] overflow-y-auto">
+            <div className="px-4 py-3 space-y-3 max-h-[60vh] overflow-y-auto">
               {resolutionSteps.map((s, i) => (
-                <div key={s.item.id + i} className="flex items-center gap-3">
-                  <div className="text-xs text-mtg-text-muted font-bold w-5 text-right flex-shrink-0">{i + 1}</div>
-                  <img src={s.item.imageUri || CARD_BACK} alt={s.item.name} width={48} height={67} className="rounded border border-mtg-border flex-shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-display font-bold text-mtg-text">{s.item.name}</div>
-                    <div className="text-xs text-mtg-text-dim">
-                      {pLabel(gs, s.item.controller)}
-                      {s.item.type === "triggered_ability" && " \u00B7 Trigger"}
-                      {s.item.type === "activated_ability" && " \u00B7 Ability"}
-                      {s.item.targets.length > 0 && ` \u2192 ${s.item.targets.map(t => t.name).join(", ")}`}
-                      {s.item.requiresTarget && s.item.targets.length === 0 && <span className="ml-1 text-red-400 font-semibold">\u00B7 &#127919; Needs target</span>}
+                <div key={s.item.id + i} className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs text-mtg-text-muted font-bold w-5 text-right flex-shrink-0">{i + 1}</div>
+                    <img src={s.item.imageUri || CARD_BACK} alt={s.item.name} width={48} height={67} className="rounded border border-mtg-border flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-display font-bold text-mtg-text">{s.item.name}</div>
+                      <div className="text-xs text-mtg-text-dim">
+                        {pLabel(gs, s.item.controller)}
+                        {s.item.type === "triggered_ability" && " \u00B7 Trigger"}
+                        {s.item.type === "activated_ability" && " \u00B7 Ability"}
+                        {s.item.targets.length > 0 && ` \u2192 ${s.item.targets.map(t => t.name).join(", ")}`}
+                        {s.item.requiresTarget && s.item.targets.length === 0 && targetChoices[s.item.id] && <span className="ml-1 text-green-400 font-semibold">\u00B7 \u2192 {targetChoices[s.item.id]}</span>}
+                        {s.item.requiresTarget && s.item.targets.length === 0 && !targetChoices[s.item.id] && <span className="ml-1 text-amber-400 font-semibold">\u00B7 &#127919; Choose target</span>}
+                      </div>
+                      {s.item.effect && <div className="text-[11px] text-mtg-text-muted mt-0.5 line-clamp-2">{s.item.effect}</div>}
                     </div>
-                    {s.item.effect && <div className="text-[11px] text-mtg-text-muted mt-0.5 line-clamp-2">{s.item.effect}</div>}
                   </div>
+                  {s.item.requiresTarget && s.item.targets.length === 0 && (
+                    <div className="ml-8">
+                      <TargetPicker
+                        gs={gs}
+                        value={targetChoices[s.item.id] ?? ""}
+                        onChange={(name) => setTargetChoices(prev => ({ ...prev, [s.item.id]: name }))}
+                        required
+                        label="Deal 1 damage to"
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -347,15 +362,29 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
                     )}
                     {step.item.effect && <div className="text-xs text-mtg-text-dim leading-relaxed line-clamp-3">Effect: {step.item.effect}</div>}
                     {step.item.requiresTarget && (
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-900/30 border border-red-500/40 text-xs text-red-300 font-semibold">
-                        <span>&#127919;</span>
-                        <span>Requires target — controller must declare any target (player, creature, or planeswalker)</span>
+                      <div className="mt-2 space-y-1.5">
+                        <TargetPicker
+                          gs={gs}
+                          value={targetChoices[step.item.id] ?? ""}
+                          onChange={(name) => setTargetChoices(prev => ({ ...prev, [step.item.id]: name }))}
+                          required
+                          label="Deal 1 damage to"
+                        />
+                        {targetChoices[step.item.id] && (
+                          <div className="text-xs text-green-400 font-semibold">→ Deals 1 damage to {targetChoices[step.item.id]}</div>
+                        )}
                       </div>
                     )}
                   </div>
                 )}
                 {(step.phase === "resolution" || !step.phase) && (
                   <div className="space-y-2 max-h-36 overflow-y-auto">
+                    {step.item.requiresTarget && step.item.targets.length === 0 && targetChoices[step.item.id] && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-900/30 border border-green-500/40 text-xs text-green-300 font-semibold">
+                        <span>&#127919;</span>
+                        <span>Deals 1 damage to {targetChoices[step.item.id]}</span>
+                      </div>
+                    )}
                     {step.logEntries.filter(e => e.type !== "priority_pass" && e.type !== "priority_receive").map((e, i) => (
                       <div key={i} className="flex items-start gap-2">
                         {LOG_ICONS[e.type] && <span className="text-sm flex-shrink-0">{LOG_ICONS[e.type]}</span>}
@@ -911,10 +940,11 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
   // For each triggered ability that was on the stack pre-resolution, find its most recent
   // matching trigger log entry (closest to logsAtStart) for the cause/effect detail.
   // Use the step count per source to correctly represent multiple triggers.
+  const initialStackIds = new Set(beforeState.stack.map(s => s.id));
   const preResStepsBySource = new Map<string, ResolutionStep[]>();
   for (const s of steps.filter(s => s.item.type === "triggered_ability")) {
+    if (!initialStackIds.has(s.item.id)) continue; // skip triggers generated during resolution
     const src = s.item.triggerSource || s.item.name.replace(" trigger", "");
-    if (duringSourceNames.has(src)) continue; // already covered by during-resolution entries
     if (!preResStepsBySource.has(src)) preResStepsBySource.set(src, []);
     preResStepsBySource.get(src)!.push(s);
   }
