@@ -984,7 +984,9 @@ function resolveTopOfStack(state: GameState): GameState {
     state.priority.splitSecondActive = false;
   }
 
-  return afterResolution(state, item);
+  const resolved = afterResolution(state, item);
+  checkStateBasedActions(resolved);
+  return resolved;
 }
 
 function isPermamentSpell(spellType?: string): boolean {
