@@ -506,6 +506,17 @@ function parseDamageFromEffect(effect: string, xValue?: number): DamageResult[] 
 /**
  * Detect life gain in an effect. Returns amount, or 0 if not found.
  */
+function parseDestroyFromEffect(effect: string): boolean {
+  if (!effect) return false;
+  const lower = effect.toLowerCase();
+  return /destroy\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker)/i.test(lower);
+}
+
+function parseExileFromEffect(effect: string): boolean {
+  if (!effect) return false;
+  return /exile\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker)/i.test(effect);
+}
+
 function parseLifeGainFromEffect(effect: string, xValue?: number): number {
   if (!effect) return 0;
   const lower = effect.toLowerCase();
@@ -916,6 +927,33 @@ function resolveTopOfStack(state: GameState): GameState {
       }
     }
 
+    // ── Destroy effects ───────────────────────────────────────────────────────
+    if (parseDestroyFromEffect(item.effect)) {
+      for (const target of item.targets.filter((t) => t.isLegal)) {
+        const perm = state.battlefield.find((p) => p.id === target.id || p.name === target.name);
+        if (perm) {
+          if (perm.keywords.includes("indestructible")) {
+            addLog(state, "explanation", undefined,
+              `${perm.name} is indestructible`,
+              `${item.name} has no effect on ${perm.name}.`
+            );
+          } else {
+            destroyPermanent(state, perm);
+          }
+        }
+      }
+    }
+
+    // ── Exile effects ─────────────────────────────────────────────────────────
+    if (parseExileFromEffect(item.effect)) {
+      for (const target of item.targets.filter((t) => t.isLegal)) {
+        const perm = state.battlefield.find((p) => p.id === target.id || p.name === target.name);
+        if (perm) {
+          exilePermanent(state, perm, item.name);
+        }
+      }
+    }
+
     // ── Life gain effects ─────────────────────────────────────────────────────
     const lifeGain = parseLifeGainFromEffect(item.effect, item.xValue);
     if (lifeGain > 0) {
@@ -1160,7 +1198,7 @@ function destroyPermanent(state: GameState, permanent: Permanent): void {
   if (!state.graveyards[permanent.owner]) state.graveyards[permanent.owner] = [];
   state.graveyards[permanent.owner]!.push(permanent.name);
 
-  addLog(state, "state_based_action", undefined,
+  addLog(state, "game_event", undefined,
     `${permanent.name} dies`,
     `Moved from the battlefield to ${state.players[permanent.owner]!.label}'s graveyard.`,
     true
@@ -1181,6 +1219,32 @@ function destroyPermanent(state: GameState, permanent: Permanent): void {
   const triggers = detectTriggers(state, diesEvent);
   if (triggers.length > 0) {
     placeTriggers(state, triggers, diesEvent);
+  }
+}
+
+function exilePermanent(state: GameState, permanent: Permanent, sourceName: string): void {
+  state.battlefield = state.battlefield.filter((p) => p.id !== permanent.id);
+  state.exile.push(permanent.name);
+
+  addLog(state, "game_event", undefined,
+    `${permanent.name} is exiled`,
+    `${sourceName} exiled ${permanent.name} from the battlefield.`,
+    true
+  );
+
+  const exileEvent: GameEvent = {
+    id: generateId(),
+    type: "dies",
+    timestamp: state.stepCount,
+    sourceId: permanent.id,
+    sourceName: permanent.name,
+    sourceController: permanent.controller,
+  };
+  state.eventLog.push(exileEvent);
+
+  const triggers = detectTriggers(state, exileEvent);
+  if (triggers.length > 0) {
+    placeTriggers(state, triggers, exileEvent);
   }
 }
 
