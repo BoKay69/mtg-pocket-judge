@@ -152,6 +152,10 @@ export function processAction(
       return handleSetDayNight(state, action.state);
     case "set_stack_target":
       return handleSetStackTarget(state, action.stackItemId, action.targetName, action.targetId);
+    case "declare_attackers":
+      return handleDeclareAttackers(state, action.attackers);
+    case "apply_combat_damage":
+      return handleApplyCombatDamage(state, action.attackers);
     case "undo":
       return undo() ?? state;
     default:
@@ -1924,4 +1928,143 @@ function addLog(
     detail,
     highlight,
   });
+}
+
+// ─── Combat ──────────────────────────────────────────────────────────────────
+
+function getCreatureCombatPower(perm: Permanent): number {
+  const base = perm.currentPower ?? perm.basePower ?? 0;
+  const plus = perm.counters["+1/+1"] ?? 0;
+  const minus = perm.counters["-1/-1"] ?? 0;
+  return Math.max(0, base + plus - minus);
+}
+
+function handleDeclareAttackers(
+  state: GameState,
+  attackers: { permanentId: string; targetPlayerId: PlayerId }[]
+): GameState {
+  state.currentStep = "declare_attackers";
+  addLog(state, "phase_change", undefined, `→ ${STEP_LABELS["declare_attackers"]}`);
+
+  if (attackers.length === 0) {
+    addLog(state, "explanation", undefined, "No creatures declared as attackers. Combat skipped.");
+    return state;
+  }
+
+  for (const { permanentId, targetPlayerId } of attackers) {
+    const creature = state.battlefield.find((p) => p.id === permanentId);
+    if (!creature) continue;
+    const targetPlayer = state.players[targetPlayerId];
+    if (!targetPlayer) continue;
+
+    const hasVigilance = creature.keywords.includes("vigilance");
+    if (!hasVigilance) {
+      creature.tapped = true;
+    }
+
+    addLog(state, "game_event", creature.controller,
+      `${creature.name} attacks ${targetPlayer.label}${hasVigilance ? " (vigilance — does not tap)" : ""}`,
+      undefined, true
+    );
+
+    const attackEvent: GameEvent = {
+      id: generateId(),
+      type: "attacks",
+      timestamp: state.stepCount,
+      sourceId: creature.id,
+      sourceName: creature.name,
+      sourceController: creature.controller,
+      targetId: targetPlayerId,
+      targetName: targetPlayer.label,
+    };
+    state.eventLog.push(attackEvent);
+
+    const triggers = detectTriggers(state, attackEvent);
+    if (triggers.length > 0) {
+      placeTriggers(state, triggers, attackEvent);
+    }
+  }
+
+  return state;
+}
+
+function handleApplyCombatDamage(
+  state: GameState,
+  attackers: { permanentId: string; targetPlayerId: PlayerId }[]
+): GameState {
+  if (attackers.length === 0) {
+    addLog(state, "explanation", undefined, "No attackers — no combat damage dealt.");
+    state.currentStep = "end_combat";
+    addLog(state, "phase_change", undefined, `→ ${STEP_LABELS["end_combat"]}`);
+    return state;
+  }
+
+  state.currentStep = "combat_damage";
+  addLog(state, "phase_change", undefined, `→ ${STEP_LABELS["combat_damage"]}`);
+
+  const damageByTarget = new Map<PlayerId, number>();
+
+  for (const { permanentId, targetPlayerId } of attackers) {
+    const creature = state.battlefield.find((p) => p.id === permanentId);
+    if (!creature) continue;
+    const power = getCreatureCombatPower(creature);
+    const targetPlayer = state.players[targetPlayerId];
+    if (!targetPlayer) continue;
+
+    if (power <= 0) {
+      addLog(state, "game_event", creature.controller,
+        `${creature.name} has 0 power — no damage dealt to ${targetPlayer.label}`
+      );
+      continue;
+    }
+
+    damageByTarget.set(targetPlayerId, (damageByTarget.get(targetPlayerId) ?? 0) + power);
+
+    addLog(state, "game_event", creature.controller,
+      `${creature.name} deals ${power} combat damage to ${targetPlayer.label}`,
+      undefined, true
+    );
+
+    if (creature.keywords.includes("lifelink")) {
+      const controller = state.players[creature.controller]!;
+      controller.life += power;
+      addLog(state, "game_event", creature.controller,
+        `Lifelink: ${controller.label} gains ${power} life (now ${controller.life})`
+      );
+    }
+
+    const dmgEvent: GameEvent = {
+      id: generateId(),
+      type: "deals_damage",
+      timestamp: state.stepCount,
+      sourceId: creature.id,
+      sourceName: creature.name,
+      sourceController: creature.controller,
+      targetId: targetPlayerId,
+      targetName: targetPlayer.label,
+      data: { amount: power },
+    };
+    state.eventLog.push(dmgEvent);
+    const triggers = detectTriggers(state, dmgEvent);
+    if (triggers.length > 0) {
+      placeTriggers(state, triggers, dmgEvent);
+    }
+  }
+
+  for (const [targetPlayerId, total] of Array.from(damageByTarget.entries())) {
+    const player = state.players[targetPlayerId]!;
+    const before = player.life;
+    player.life -= total;
+    addLog(state, "game_event", undefined,
+      `${player.label} takes ${total} combat damage: ${before} → ${player.life} life`,
+      undefined, true
+    );
+  }
+
+  checkStateBasedActions(state);
+
+  state.currentStep = "end_combat";
+  addLog(state, "phase_change", undefined, `→ ${STEP_LABELS["end_combat"]}`);
+
+  return state;
 }

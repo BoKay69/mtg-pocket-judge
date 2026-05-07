@@ -357,4 +357,6 @@ export type UserAction =
   | { type: "transform_permanent"; permanentId: string }
   | { type: "set_day_night"; state: "day" | "night" | null }
   | { type: "set_stack_target"; stackItemId: string; targetName: string; targetId?: string }
+  | { type: "declare_attackers"; attackers: { permanentId: string; targetPlayerId: PlayerId }[] }
+  | { type: "apply_combat_damage"; attackers: { permanentId: string; targetPlayerId: PlayerId }[] }
   | { type: "undo" };

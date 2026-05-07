@@ -610,6 +610,213 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
   );
 }
 
+// ─── Combat Components ────────────────────────────────────────────────────────
+
+type AttackerEntry = { permanentId: string; targetPlayerId: PlayerId };
+
+function DeclareAttackersPanel({ gs, onDeclare }: { gs: GameState; onDeclare: (attackers: AttackerEntry[]) => void }) {
+  const [ignoreSSick, setIgnoreSSick] = useState(false);
+  const eligibleCreatures = gs.battlefield.filter(
+    (p) =>
+      p.controller === gs.activePlayer &&
+      p.types.includes("creature") &&
+      !p.tapped &&
+      !p.keywords.includes("defender") &&
+      (ignoreSSick || !p.summoningSick || p.keywords.includes("haste"))
+  );
+  const opponents = gs.playerOrder.filter((pid) => pid !== gs.activePlayer);
+  const defaultTarget = opponents[0] ?? gs.playerOrder[0];
+  const [selections, setSelections] = useState<Record<string, PlayerId>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const unselectedEligible = eligibleCreatures.filter((c) => !(c.id in selections));
+  const suggestions = unselectedEligible.filter(
+    (c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const addAttacker = (creature: (typeof eligibleCreatures)[0]) => {
+    setSelections((prev) => ({ ...prev, [creature.id]: defaultTarget }));
+    setSearchQuery("");
+    setShowSuggestions(false);
+  };
+
+  const removeAttacker = (permId: string) => {
+    setSelections((prev) => { const next = { ...prev }; delete next[permId]; return next; });
+  };
+
+  const handleConfirm = () => {
+    const attackers: AttackerEntry[] = Object.entries(selections).map(([permanentId, targetPlayerId]) => ({ permanentId, targetPlayerId }));
+    onDeclare(attackers);
+    setSelections({});
+    setSearchQuery("");
+  };
+
+  const getPower = (p: (typeof eligibleCreatures)[0]) =>
+    Math.max(0, (p.currentPower ?? p.basePower ?? 0) + (p.counters["+1/+1"] ?? 0) - (p.counters["-1/-1"] ?? 0));
+  const getToughness = (p: (typeof eligibleCreatures)[0]) =>
+    Math.max(0, (p.currentToughness ?? p.baseToughness ?? 0) + (p.counters["+1/+1"] ?? 0) - (p.counters["-1/-1"] ?? 0));
+
+  const selectedCount = Object.keys(selections).length;
+
+  return (
+    <Card className="!p-3 mt-2 border-amber-500/30 bg-amber-950/10">
+      <SectionLabel>⚔️ Declare Attackers</SectionLabel>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[11px] text-mtg-text-muted">
+          Search for a creature to declare as an attacker. Only untapped, non-defender creatures are eligible.
+        </p>
+        <label className="flex items-center gap-1.5 ml-3 flex-shrink-0 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={ignoreSSick}
+            onChange={(e) => setIgnoreSSick(e.target.checked)}
+            className="w-3 h-3 accent-amber-500 cursor-pointer"
+          />
+          <span className="text-[10px] text-mtg-text-muted whitespace-nowrap">Ignore summoning sickness</span>
+        </label>
+      </div>
+
+      <div className="relative mb-2">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => { setSearchQuery(e.target.value); setShowSuggestions(true); }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          placeholder={
+            eligibleCreatures.length === 0
+              ? ignoreSSick ? "No eligible attackers (all tapped or have defender)" : "No eligible attackers (all tapped, have summoning sickness, or have defender)"
+              : unselectedEligible.length > 0
+              ? `Search from ${unselectedEligible.length} eligible creature${unselectedEligible.length !== 1 ? "s" : ""}…`
+              : "All eligible creatures selected"
+          }
+          disabled={unselectedEligible.length === 0}
+          className="w-full px-3 py-1.5 bg-mtg-surface border border-mtg-border rounded-lg text-[11px] text-mtg-text placeholder:text-mtg-text-muted outline-none focus:border-amber-500/60 disabled:opacity-50"
+        />
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute z-50 left-0 right-0 top-full mt-0.5 bg-mtg-surface border border-mtg-border rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+            {suggestions.map((creature) => (
+              <div
+                key={creature.id}
+                onMouseDown={() => addAttacker(creature)}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-amber-950/30 cursor-pointer"
+              >
+                <span className="text-[11px] font-display font-bold text-mtg-text">{creature.name}</span>
+                <span className="text-[10px] text-mtg-text-muted">{getPower(creature)}/{getToughness(creature)}</span>
+                {creature.keywords.includes("vigilance") && <span className="text-[9px] text-mtg-text-muted">vigilance</span>}
+                {creature.keywords.includes("trample") && <span className="text-[9px] text-mtg-text-muted">trample</span>}
+                {creature.keywords.includes("lifelink") && <span className="text-[9px] text-mtg-text-muted">lifelink</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {selectedCount > 0 && (
+        <div className="space-y-1 mb-2">
+          {Object.entries(selections).map(([permId, targetId]) => {
+            const creature = eligibleCreatures.find((c) => c.id === permId);
+            if (!creature) return null;
+            return (
+              <div key={permId} className="flex items-center gap-2 p-2 rounded-lg border border-amber-500/60 bg-amber-950/20">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] font-display font-bold text-mtg-text truncate">{creature.name}</div>
+                  <div className="text-[10px] text-mtg-text-muted">
+                    {getPower(creature)}/{getToughness(creature)}
+                    {creature.keywords.includes("vigilance") && " · vigilance"}
+                    {creature.keywords.includes("lifelink") && " · lifelink"}
+                    {creature.keywords.includes("trample") && " · trample"}
+                    {creature.keywords.includes("first_strike") && " · first strike"}
+                    {creature.keywords.includes("double_strike") && " · double strike"}
+                  </div>
+                </div>
+                {opponents.length > 1 ? (
+                  <select
+                    value={targetId}
+                    onChange={(e) => setSelections((prev) => ({ ...prev, [permId]: e.target.value as PlayerId }))}
+                    className="px-1.5 py-0.5 bg-mtg-surface border border-mtg-border rounded text-[10px] text-mtg-text outline-none"
+                  >
+                    {opponents.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
+                  </select>
+                ) : (
+                  <span className="text-[10px] text-amber-400">→ {gs.players[defaultTarget]!.label}</span>
+                )}
+                <button
+                  onClick={() => removeAttacker(permId)}
+                  className="text-[10px] text-red-400 hover:text-red-300 flex-shrink-0 px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Button
+        onClick={handleConfirm}
+        className="w-full"
+        size="sm"
+        variant={selectedCount > 0 ? "primary" : "secondary"}
+      >
+        {selectedCount > 0
+          ? `⚔️ Attack with ${selectedCount} creature${selectedCount !== 1 ? "s" : ""}`
+          : "No Attackers — Skip Combat"}
+      </Button>
+    </Card>
+  );
+}
+
+function CombatSummaryPanel({
+  gs,
+  attackers,
+  onApplyDamage,
+}: {
+  gs: GameState;
+  attackers: AttackerEntry[];
+  onApplyDamage: () => void;
+}) {
+  const byTarget = new Map<PlayerId, { name: string; power: number; hasLifelink: boolean; hasTrample: boolean }[]>();
+  for (const { permanentId, targetPlayerId } of attackers) {
+    const creature = gs.battlefield.find((p) => p.id === permanentId);
+    if (!creature) continue;
+    const power = Math.max(0, (creature.currentPower ?? creature.basePower ?? 0) + (creature.counters["+1/+1"] ?? 0) - (creature.counters["-1/-1"] ?? 0));
+    if (!byTarget.has(targetPlayerId)) byTarget.set(targetPlayerId, []);
+    byTarget.get(targetPlayerId)!.push({ name: creature.name, power, hasLifelink: creature.keywords.includes("lifelink"), hasTrample: creature.keywords.includes("trample") });
+  }
+
+  return (
+    <Card className="!p-3 mt-2 border-red-500/30 bg-red-950/10">
+      <SectionLabel>⚔️ Combat in Progress</SectionLabel>
+      <div className="space-y-2 mb-3">
+        {Array.from(byTarget.entries()).map(([targetId, creatures]) => {
+          const total = creatures.reduce((s, c) => s + c.power, 0);
+          const targetLabel = gs.players[targetId]?.label ?? targetId;
+          return (
+            <div key={targetId} className="p-2 bg-mtg-surface rounded-lg border border-mtg-border">
+              <div className="text-[11px] font-display font-bold text-red-400 mb-1">
+                Attacking {targetLabel} — {total} total power
+              </div>
+              {creatures.map((c, i) => (
+                <div key={i} className="text-[10px] text-mtg-text-muted flex items-center gap-1.5">
+                  <span>⚔️ {c.name} ({c.power})</span>
+                  {c.hasLifelink && <span className="text-green-400">· lifelink</span>}
+                  {c.hasTrample && <span className="text-orange-400">· trample</span>}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      <Button onClick={onApplyDamage} className="w-full" variant="primary" size="sm">
+        ⚔️ Apply Combat Damage (No Blockers)
+      </Button>
+      <p className="text-[10px] text-mtg-text-muted mt-1 text-center">Skips declare blockers — assumes all damage goes through</p>
+    </Card>
+  );
+}
+
 // ─── Cast Spell / Activate Ability Form ──────────────────────────────────────
 
 function isTriggerRuling(comment: string): boolean {
@@ -1049,6 +1256,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   const [preset, setPreset] = useState<ScenarioPreset | null>(null);
   const [resSteps, setResSteps] = useState<ResolutionStep[] | null>(null);
   const [tokenImages, setTokenImages] = useState<Record<string, string>>({});
+  const [declaredAttackers, setDeclaredAttackers] = useState<AttackerEntry[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   // Reset on format change
@@ -1139,6 +1347,25 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
     dispatch({ type: "set_stack_target", stackItemId: itemId, targetName, targetId });
   }, [dispatch]);
 
+  const combatSteps: TurnStep[] = ["begin_combat", "declare_attackers", "declare_blockers", "first_strike_damage", "combat_damage", "end_combat"];
+
+  useEffect(() => {
+    if (!combatSteps.includes(gs.currentStep)) {
+      setDeclaredAttackers([]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gs.currentStep]);
+
+  const handleDeclareAttackers = (attackers: AttackerEntry[]) => {
+    setDeclaredAttackers(attackers);
+    dispatch({ type: "declare_attackers", attackers });
+  };
+
+  const handleApplyCombatDamage = () => {
+    dispatch({ type: "apply_combat_damage", attackers: declaredAttackers });
+    setDeclaredAttackers([]);
+  };
+
   return (
     <div className="space-y-3">
       <style>{`.animate-pulse-subtle { animation: ps 2s ease-in-out infinite; } @keyframes ps { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.15); } }`}</style>
@@ -1205,6 +1432,12 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           <BattlefieldDisplay key={pid} permanents={gs.battlefield} playerId={pid} playerLabel={pLabel(gs, pid)} tokenImages={tokenImages} onTransform={(id) => dispatch({ type: "transform_permanent", permanentId: id })} />
         ))}
         <AddPermanentForm gs={gs} onAdd={(perm) => dispatch({ type: "add_permanent", permanent: perm })} />
+        {(gs.currentStep === "begin_combat" || (gs.currentStep === "declare_attackers" && declaredAttackers.length === 0)) && (
+          <DeclareAttackersPanel gs={gs} onDeclare={handleDeclareAttackers} />
+        )}
+        {combatSteps.slice(1, 5).includes(gs.currentStep) && declaredAttackers.length > 0 && (
+          <CombatSummaryPanel gs={gs} attackers={declaredAttackers} onApplyDamage={handleApplyCombatDamage} />
+        )}
       </div>
 
       {/* ── Day/Night Panel (shown when relevant) ──────────────────── */}
