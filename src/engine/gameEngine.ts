@@ -458,27 +458,19 @@ function parseDrawsFromEffect(
 
 /**
  * Check the battlefield for permanents that replace "would create N tokens" with
- * "create twice as many instead" (Doubling Season, Parallel Lives, Anointed Procession).
- * Each qualifying permanent doubles the count independently (stacking multiplicatively).
+ * "create twice as many instead" (Parallel Lives, Anointed Procession, etc.).
+ *
+ * NOTE: Doubling Season and cards with the same "twice as many" text now fire as
+ * triggered abilities (appearing on the stack) rather than silent replacement effects,
+ * so they are excluded here and handled by detectTriggers instead.
  */
 function applyTokenReplacementEffects(
-  state: GameState,
+  _state: GameState,
   count: number,
-  tokenController: PlayerId
+  _tokenController: PlayerId
 ): { finalCount: number; appliers: string[] } {
-  let finalCount = count;
-  const appliers: string[] = [];
-
-  for (const perm of state.battlefield) {
-    if (perm.controller !== tokenController) continue;
-    const oracle = (perm.oracleText || "").toLowerCase();
-    if (oracle.includes("token") && (oracle.includes("twice as many") || oracle.includes("twice that many"))) {
-      finalCount *= 2;
-      appliers.push(perm.name);
-    }
-  }
-
-  return { finalCount, appliers };
+  // All "twice as many/twice that many" permanents now trigger — nothing to multiply silently.
+  return { finalCount: count, appliers: [] };
 }
 
 // ─── Token / Damage / Life Parsers ───────────────────────────────────────────
@@ -878,24 +870,24 @@ function resolveTopOfStack(state: GameState): GameState {
       item.effect.toLowerCase().includes("amass");
     if (tokenResult && !isArmyAmass) {
       const controllerPlayer = state.players[item.controller]!;
-
-      // Apply replacement effects (Doubling Season, Parallel Lives, Anointed Procession, etc.)
-      const { finalCount: tokenCount, appliers: doublers } = applyTokenReplacementEffects(
-        state, tokenResult.count, item.controller
-      );
-      for (const doublerName of doublers) {
-        addLog(state, "game_event", item.controller,
-          `${doublerName} doubles token creation: ${tokenResult.count} → ${tokenCount}`,
-          `${doublerName} is a replacement effect — the original event would create ${tokenResult.count} token${tokenResult.count !== 1 ? "s" : ""}, but ${doublerName} replaces that event so ${tokenCount} are created instead.`,
-          true
-        );
-      }
+      const tokenCount = tokenResult.count;
 
       addLog(state, "game_event", item.controller,
         `${controllerPlayer.label} creates ${tokenCount} ${tokenResult.description}`,
         `Effect of ${item.name}`,
         true
       );
+
+      // Determine origin flags so trigger conditions know what kind of tokens these are.
+      // - fromDoublingSeason: tokens created when a DS/doubling trigger resolves
+      //   (prevents DS from doubling its own output; prevents CF from updating twice)
+      // - fromChatterfang: tokens created when a Chatterfang-style trigger resolves
+      //   (prevents CF from looping; allows DS to double them once more)
+      const fromDoublingSeason = item.isDoublingTrigger === true;
+      const fromChatterfang =
+        !fromDoublingSeason &&
+        item.type === "triggered_ability" &&
+        item.triggerEvent === "tokens_created";
 
       const tokensEvent: GameEvent = {
         id: generateId(),
@@ -908,12 +900,41 @@ function resolveTopOfStack(state: GameState): GameState {
           count: tokenCount,
           tokenType: tokenResult.description,
           xValue: item.xValue,
+          fromDoublingSeason,
+          fromChatterfang,
         },
       };
       state.eventLog.push(tokensEvent);
       const tokenTriggers = detectTriggers(state, tokensEvent);
       if (tokenTriggers.length > 0) {
         deferredTriggers.push({ triggers: tokenTriggers, event: tokensEvent });
+      }
+
+      // If this is a Doubling Season trigger resolving, update any pending Chatterfang-style
+      // triggers from the same source event so they reflect the doubled token count.
+      if (fromDoublingSeason && item.triggeredByEventId && item.xValue !== undefined) {
+        for (const stackItem of state.stack) {
+          if (
+            stackItem.triggeredByEventId === item.triggeredByEventId &&
+            !stackItem.isDoublingTrigger
+          ) {
+            const oldX = stackItem.xValue ?? 0;
+            const newX = oldX + item.xValue;
+            stackItem.xValue = newX;
+            if (stackItem.effect) {
+              stackItem.effect = stackItem.effect.replace(
+                `create ${oldX}`,
+                `create ${newX}`
+              );
+            }
+            addLog(
+              state, "explanation", undefined,
+              `${item.triggerSource || "Doubling Season"} updates ${stackItem.triggerSource || stackItem.name}: token count ${oldX} → ${newX}`,
+              `Because ${item.triggerSource || "Doubling Season"} created ${item.xValue} additional tokens, the pending trigger now creates ${newX} tokens when it resolves.`,
+              true
+            );
+          }
+        }
       }
 
       // Create each token as a Permanent and fire enters_battlefield events.
@@ -1345,7 +1366,12 @@ function placeTriggers(
     // Also replace "that many" (e.g. Chatterfang) with the numeric value so
     // parseTokensFromEffect can parse the count when this trigger resolves.
     let effectWithX = trigger.effect;
-    if (xContext !== undefined) {
+    if (trigger.isDoublingEffect && event.type === "tokens_created") {
+      // Doubling Season / Parallel Lives: create an equal number of additional tokens.
+      // Use the token type from the triggering event so the correct token is produced.
+      const tokenType = (event.data?.tokenType as string) ?? "tokens";
+      effectWithX = `create ${xContext ?? 0} ${tokenType}`;
+    } else if (xContext !== undefined) {
       effectWithX = effectWithX.replace(/that many/gi, String(xContext));
       if (effectWithX.toLowerCase().includes("x")) {
         effectWithX = `${effectWithX} (X = ${xContext})`;
@@ -1368,6 +1394,8 @@ function placeTriggers(
       xValue: xContext,
       requiresTarget: effectRequiresTarget(effectWithX),
       eventSourceController: event.sourceController,
+      isDoublingTrigger: trigger.isDoublingEffect === true,
+      triggeredByEventId: event.id,
     };
 
     state.stack.push(stackItem);

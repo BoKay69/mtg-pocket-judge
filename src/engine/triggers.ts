@@ -23,6 +23,36 @@ export function detectTriggers(
         matched.push(trigger);
       }
     }
+
+    // Doubling Season / Parallel Lives: synthetic token-doubling trigger.
+    // These permanents use replacement-effect language in their oracle text, so no
+    // trigger is parsed automatically. We detect them here and fire them as triggered
+    // abilities so they appear on the stack and allow player ordering.
+    // Only fire when: tokens_created event, not already from DS (prevent doubling the doubling).
+    if (
+      event.type === "tokens_created" &&
+      !event.data?.fromDoublingSeason &&
+      permanent.controller === event.sourceController
+    ) {
+      const oracle = (permanent.oracleText || "").toLowerCase();
+      if (
+        oracle.includes("token") &&
+        (oracle.includes("twice as many") || oracle.includes("twice that many"))
+      ) {
+        const tokenCount = (event.data?.count as number) ?? 1;
+        const tokenType = (event.data?.tokenType as string) ?? "tokens";
+        matched.push({
+          id: generateId(),
+          event: "tokens_created",
+          condition: "whenever one or more tokens are created under your control",
+          effect: `create ${tokenCount} ${tokenType}`,
+          sourceId: permanent.id,
+          sourceName: permanent.name,
+          controller: permanent.controller,
+          isDoublingEffect: true,
+        });
+      }
+    }
   }
 
   return apnapSort(matched, state.activePlayer);
@@ -472,6 +502,11 @@ function checkTokensCreatedCondition(
 ): boolean {
   if (!trigger.condition) return true;
   const cond = trigger.condition.toLowerCase();
+
+  // Chatterfang-style triggers must not fire on tokens created by:
+  //   • Doubling Season (would re-trigger CF on DS's extra tokens — use xValue update instead)
+  //   • Another Chatterfang trigger (prevents exponential CF loops)
+  if (event.data?.fromDoublingSeason || event.data?.fromChatterfang) return false;
 
   // Controller filter
   if (cond.includes("you create") || cond.includes("tokens you create") || cond.includes("under your control")) {

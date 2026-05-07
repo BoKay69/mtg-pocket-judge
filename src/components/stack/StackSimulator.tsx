@@ -1130,6 +1130,7 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
   const resolutionSteps: ResolutionStep[] = [];
   let state = JSON.parse(JSON.stringify(beforeState)) as GameState;
   const logsAtStart = state.actionLog.length;
+
   let safety = 0;
   while (state.stack.length > 0 && safety < 100) {
     safety++;
@@ -1167,9 +1168,6 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
   //   log entries live before logsAtStart. Build synthetic entries from the step items
   //   so the summary correctly shows "Rhystic Study triggered because X was cast."
   const duringResolutionTriggers = newLogs.filter(e => e.type === "trigger");
-  const duringSourceNames = new Set(
-    duringResolutionTriggers.map(e => e.text.replace("'s ability triggers", "").trim())
-  );
 
   // For each triggered ability that was on the stack pre-resolution, find its most recent
   // matching trigger log entry (closest to logsAtStart) for the cause/effect detail.
@@ -1210,6 +1208,17 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
     summaryLines.push(`Resolution order (LIFO — last added resolves first):\n${resolvedNames.join(" → ")}`);
   }
 
+  // Show any new triggers that were placed on the stack during this resolution
+  const newStackTriggers = state.stack.filter(
+    s => !initialStackIds.has(s.id) && s.type === "triggered_ability"
+  );
+  if (newStackTriggers.length > 0) {
+    summaryLines.push(
+      `\n⚡ Trigger${newStackTriggers.length > 1 ? "s" : ""} placed on stack — resolve next:\n` +
+      newStackTriggers.map(t => `• ${t.name}: ${t.effect}`).join("\n")
+    );
+  }
+
   if (triggerEntries.length > 0) {
     // Group triggers by source permanent
     const bySource = new Map<string, typeof triggerEntries>();
@@ -1218,16 +1227,18 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
       if (!bySource.has(src)) bySource.set(src, []);
       bySource.get(src)!.push(t);
     }
-    summaryLines.push(`\nTriggers fired (${triggerEntries.length} total):`);
-    Array.from(bySource.entries()).forEach(([src, ts]) => {
-      const count = ts.length;
-      const lines = ts[0].detail?.split("\n") ?? [];
-      const causeLine = lines.find((l: string) => l.startsWith("Cause:")) ?? "";
-      const effectLine = lines.find((l: string) => l.startsWith("Effect:")) ?? "";
-      summaryLines.push(`⚡ ${src}${count > 1 ? ` ×${count}` : ""}`);
-      if (causeLine) summaryLines.push(`   ${causeLine}`);
-      if (effectLine) summaryLines.push(`   ${effectLine}`);
-    });
+    if (newStackTriggers.length === 0) {
+      summaryLines.push(`\nTriggers fired (${triggerEntries.length} total):`);
+      Array.from(bySource.entries()).forEach(([src, ts]) => {
+        const count = ts.length;
+        const lines = ts[0].detail?.split("\n") ?? [];
+        const causeLine = lines.find((l: string) => l.startsWith("Cause:")) ?? "";
+        const effectLine = lines.find((l: string) => l.startsWith("Effect:")) ?? "";
+        summaryLines.push(`⚡ ${src}${count > 1 ? ` ×${count}` : ""}`);
+        if (causeLine) summaryLines.push(`   ${causeLine}`);
+        if (effectLine) summaryLines.push(`   ${effectLine}`);
+      });
+    }
   } else {
     // No triggers fired — check if any battlefield permanents have landfall or ETB triggers
     // that match lands entering the battlefield (from the resolved spells).
@@ -1516,6 +1527,36 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           Spells and abilities resolve <span className="text-mtg-text font-semibold">Last In, First Out</span> — the most recently cast item resolves first.
         </p>
         <VisualCardStack stack={gs.stack} gs={gs} />
+
+        {/* \u2500\u2500 Replacement Effects Active \u2500\u2500 shown whenever token-doubling permanents are in play */}
+        {(() => {
+          const doublers = gs.battlefield.filter(p => {
+            const oracle = (p.oracleText || "").toLowerCase();
+            return oracle.includes("token") && (oracle.includes("twice as many") || oracle.includes("twice that many"));
+          });
+          if (doublers.length === 0) return null;
+          return (
+            <div className="mt-2 px-3 py-2 bg-green-950/30 border border-green-500/30 rounded-xl">
+              <div className="text-[10px] font-display font-bold text-green-400 mb-1.5 flex items-center gap-1">
+                <span>\u2726</span>
+                <span>Replacement Effects Active</span>
+              </div>
+              <div className="space-y-1">
+                {doublers.map(p => (
+                  <div key={p.id} className="flex items-center gap-2">
+                    {p.imageUri && (
+                      <img src={p.imageUri} alt={p.name} className="w-5 h-7 rounded object-cover flex-shrink-0 border border-green-500/30" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    )}
+                    <div className="min-w-0">
+                      <span className="text-[11px] font-display font-semibold text-green-300">{p.name}</span>
+                      <span className="text-[10px] text-green-400/70 ml-1">\u2014 doubles token creation</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* \u2500\u2500 Required Targets \u2014 shown for any stack item that still needs one \u2500\u2500 */}
         {gs.stack.some((item) => item.requiresTarget && item.targets.length === 0) && (

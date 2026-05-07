@@ -134,6 +134,7 @@ export interface TriggerDefinition {
   sourceId: string; // ID of the permanent that has this trigger
   sourceName: string;
   controller: PlayerId;
+  isDoublingEffect?: boolean; // True for Doubling Season / Parallel Lives — fires as a trigger, not replacement
 }
 
 // ─── Transform / DFC ─────────────────────────────────────────────────────────
@@ -232,6 +233,9 @@ export interface EngineStackItem {
   // DFC / Transform data (carried for permanent spells that resolve onto battlefield)
   cardFaces?: [CardFaceData, CardFaceData];
   hasDayNightMechanic?: boolean;
+  // Token-doubling trigger tracking
+  isDoublingTrigger?: boolean; // True if this is a Doubling Season / Parallel Lives triggered ability
+  triggeredByEventId?: string; // The event.id that caused this trigger (for cross-trigger updates)
 }
 
 export interface StackTarget {
