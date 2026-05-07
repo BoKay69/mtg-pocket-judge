@@ -454,6 +454,33 @@ function parseDrawsFromEffect(
   return draws;
 }
 
+// ─── Token Replacement Effects ───────────────────────────────────────────────
+
+/**
+ * Check the battlefield for permanents that replace "would create N tokens" with
+ * "create twice as many instead" (Doubling Season, Parallel Lives, Anointed Procession).
+ * Each qualifying permanent doubles the count independently (stacking multiplicatively).
+ */
+function applyTokenReplacementEffects(
+  state: GameState,
+  count: number,
+  tokenController: PlayerId
+): { finalCount: number; appliers: string[] } {
+  let finalCount = count;
+  const appliers: string[] = [];
+
+  for (const perm of state.battlefield) {
+    if (perm.controller !== tokenController) continue;
+    const oracle = (perm.oracleText || "").toLowerCase();
+    if (oracle.includes("token") && (oracle.includes("twice as many") || oracle.includes("twice that many"))) {
+      finalCount *= 2;
+      appliers.push(perm.name);
+    }
+  }
+
+  return { finalCount, appliers };
+}
+
 // ─── Token / Damage / Life Parsers ───────────────────────────────────────────
 
 interface TokenResult {
@@ -851,8 +878,21 @@ function resolveTopOfStack(state: GameState): GameState {
       item.effect.toLowerCase().includes("amass");
     if (tokenResult && !isArmyAmass) {
       const controllerPlayer = state.players[item.controller]!;
+
+      // Apply replacement effects (Doubling Season, Parallel Lives, Anointed Procession, etc.)
+      const { finalCount: tokenCount, appliers: doublers } = applyTokenReplacementEffects(
+        state, tokenResult.count, item.controller
+      );
+      for (const doublerName of doublers) {
+        addLog(state, "game_event", item.controller,
+          `${doublerName} doubles token creation: ${tokenResult.count} → ${tokenCount}`,
+          `${doublerName} is a replacement effect — the original event would create ${tokenResult.count} token${tokenResult.count !== 1 ? "s" : ""}, but ${doublerName} replaces that event so ${tokenCount} are created instead.`,
+          true
+        );
+      }
+
       addLog(state, "game_event", item.controller,
-        `${controllerPlayer.label} creates ${tokenResult.count} ${tokenResult.description}`,
+        `${controllerPlayer.label} creates ${tokenCount} ${tokenResult.description}`,
         `Effect of ${item.name}`,
         true
       );
@@ -865,7 +905,7 @@ function resolveTopOfStack(state: GameState): GameState {
         sourceName: item.name,
         sourceController: item.controller,
         data: {
-          count: tokenResult.count,
+          count: tokenCount,
           tokenType: tokenResult.description,
           xValue: item.xValue,
         },
@@ -878,7 +918,7 @@ function resolveTopOfStack(state: GameState): GameState {
 
       // Create each token as a Permanent and fire enters_battlefield events.
       // MTG rules: each token enters separately, each is its own ETB event.
-      for (let i = 0; i < tokenResult.count; i++) {
+      for (let i = 0; i < tokenCount; i++) {
         const tokenPerm = createTokenPermanent(tokenResult.description, item.controller);
         const tokenId = generateId();
         const newToken: Permanent = { ...tokenPerm, id: tokenId };
@@ -1301,11 +1341,16 @@ function placeTriggers(
     const sourcePerm = state.battlefield.find((p) => p.id === trigger.sourceId)
       || state.battlefield.find((p) => p.name === trigger.sourceName);
 
-    // Build effect text — substitute X context if available
-    const effectWithX =
-      xContext !== undefined && trigger.effect.toLowerCase().includes("x")
-        ? `${trigger.effect} (X = ${xContext})`
-        : trigger.effect;
+    // Build effect text — substitute X context if available.
+    // Also replace "that many" (e.g. Chatterfang) with the numeric value so
+    // parseTokensFromEffect can parse the count when this trigger resolves.
+    let effectWithX = trigger.effect;
+    if (xContext !== undefined) {
+      effectWithX = effectWithX.replace(/that many/gi, String(xContext));
+      if (effectWithX.toLowerCase().includes("x")) {
+        effectWithX = `${effectWithX} (X = ${xContext})`;
+      }
+    }
 
     const stackItem: EngineStackItem = {
       id: generateId(),

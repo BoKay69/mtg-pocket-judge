@@ -109,50 +109,77 @@ const tokenImageCache = new Map<string, string | null>();
 function BattlefieldDisplay({ permanents, playerId, playerLabel, tokenImages, onTransform }: { permanents: Permanent[]; playerId: PlayerId; playerLabel: string; tokenImages: Record<string, string>; onTransform?: (id: string) => void }) {
   const pp = permanents.filter((p) => p.controller === playerId);
   if (pp.length === 0) return <div className="text-[11px] text-mtg-text-muted italic py-1">{playerLabel}: No permanents</div>;
+
+  const nonTokens = pp.filter((p) => !p.isToken);
+  const tokens = pp.filter((p) => p.isToken);
+
+  // Group tokens by name so we can collapse large stacks
+  const tokenGroups = new Map<string, Permanent[]>();
+  for (const t of tokens) {
+    const group = tokenGroups.get(t.name) ?? [];
+    group.push(t);
+    tokenGroups.set(t.name, group);
+  }
+
+  function renderPermanentCard(perm: Permanent, stackCount?: number) {
+    const imgSrc = perm.imageUri || (perm.isToken ? tokenImages[perm.name] : undefined);
+    const hasCounters = Object.keys(perm.counters).length > 0;
+    const isDFC = !!perm.cardFaces;
+    return (
+      <div key={stackCount !== undefined ? `${perm.name}-stack` : perm.id} className={cn("relative group flex flex-col items-center gap-0.5", perm.tapped && !stackCount && "opacity-60")}>
+        <div className="relative">
+          {imgSrc ? (
+            <img src={imgSrc} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped && !stackCount ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          ) : (
+            <div className="w-20 h-28 rounded-lg border border-mtg-border-light bg-mtg-card flex flex-col items-center justify-center p-1">
+              <span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>
+              {perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}
+            </div>
+          )}
+          {perm.damageMarked > 0 && !stackCount && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
+          {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition}`).join("\n")}>{perm.triggers.length}</div>}
+          {/* Stack count badge — shown instead of individual tokens when count > 3 */}
+          {stackCount !== undefined && (
+            <div className="absolute -bottom-1 -right-1 bg-mtg-gold text-black text-[10px] font-bold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center shadow-lg border border-yellow-300" title={`${stackCount} ${perm.name}s on the battlefield`}>
+              ×{stackCount}
+            </div>
+          )}
+        </div>
+        {/* Counter badges — only shown for individual tokens (not stacked) */}
+        {hasCounters && !stackCount && (
+          <div className="flex flex-wrap gap-0.5 max-w-[80px] justify-center">
+            {Object.entries(perm.counters).map(([type, count]) => (
+              <span key={type} className="px-1 py-0.5 rounded text-[8px] font-bold bg-blue-700/80 text-white border border-blue-500/50" title={`${count} ${type} counter${count !== 1 ? "s" : ""}`}>
+                {type === "+1/+1" ? `+${count}` : type === "-1/-1" ? `-${count}` : `${count} ${type[0]}`}
+              </span>
+            ))}
+          </div>
+        )}
+        {/* Transform button for DFC permanents */}
+        {isDFC && onTransform && !stackCount && (
+          <button
+            onClick={() => onTransform(perm.id)}
+            className="w-full px-1 py-0.5 rounded text-[8px] font-bold bg-indigo-800/70 text-indigo-200 border border-indigo-500/50 hover:bg-indigo-700/80 transition-colors"
+            title={`Transform (face ${(perm.currentFace ?? 0) + 1}/2)`}
+          >
+            ⇌ Transform
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="mb-2">
       <div className="text-[10px] text-mtg-text-muted uppercase tracking-wider mb-1.5 font-bold">{playerLabel}</div>
       <div className="flex flex-wrap gap-2">
-        {pp.map((perm) => {
-          const imgSrc = perm.imageUri || (perm.isToken ? tokenImages[perm.name] : undefined);
-          const hasCounters = Object.keys(perm.counters).length > 0;
-          const isDFC = !!perm.cardFaces;
-          return (
-            <div key={perm.id} className={cn("relative group flex flex-col items-center gap-0.5", perm.tapped && "opacity-60")}>
-              <div className="relative">
-                {imgSrc ? (
-                  <img src={imgSrc} alt={perm.name} className={cn("w-20 rounded-lg border shadow-md", perm.tapped ? "border-mtg-border rotate-[15deg]" : "border-mtg-border-light hover:border-mtg-gold/50")} style={{ minHeight: "112px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                ) : (
-                  <div className="w-20 h-28 rounded-lg border border-mtg-border-light bg-mtg-card flex flex-col items-center justify-center p-1">
-                    <span className="text-[10px] font-display font-bold text-mtg-text text-center leading-tight">{perm.name}</span>
-                    {perm.basePower !== undefined && <span className="text-[9px] text-mtg-text-dim mt-0.5">{perm.currentPower ?? perm.basePower}/{perm.currentToughness ?? perm.baseToughness}</span>}
-                  </div>
-                )}
-                {perm.damageMarked > 0 && <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow">{perm.damageMarked}</div>}
-                {perm.triggers.length > 0 && <div className="absolute -top-1 -left-1 bg-amber-500 text-black text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow" title={perm.triggers.map(t => `${t.event}: ${t.condition}`).join("\n")}>{perm.triggers.length}</div>}
-              </div>
-              {/* Counter badges */}
-              {hasCounters && (
-                <div className="flex flex-wrap gap-0.5 max-w-[80px] justify-center">
-                  {Object.entries(perm.counters).map(([type, count]) => (
-                    <span key={type} className="px-1 py-0.5 rounded text-[8px] font-bold bg-blue-700/80 text-white border border-blue-500/50" title={`${count} ${type} counter${count !== 1 ? "s" : ""}`}>
-                      {type === "+1/+1" ? `+${count}` : type === "-1/-1" ? `-${count}` : `${count} ${type[0]}`}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {/* Transform button for DFC permanents */}
-              {isDFC && onTransform && (
-                <button
-                  onClick={() => onTransform(perm.id)}
-                  className="w-full px-1 py-0.5 rounded text-[8px] font-bold bg-indigo-800/70 text-indigo-200 border border-indigo-500/50 hover:bg-indigo-700/80 transition-colors"
-                  title={`Transform (face ${(perm.currentFace ?? 0) + 1}/2)`}
-                >
-                  ⇌ Transform
-                </button>
-              )}
-            </div>
-          );
+        {nonTokens.map((perm) => renderPermanentCard(perm))}
+        {Array.from(tokenGroups.entries()).map(([, group]) => {
+          if (group.length <= 3) {
+            return group.map((perm) => renderPermanentCard(perm));
+          }
+          // More than 3 of the same token: show one representative with a count badge
+          return renderPermanentCard(group[0], group.length);
         })}
       </div>
     </div>
