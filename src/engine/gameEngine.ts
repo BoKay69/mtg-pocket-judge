@@ -880,9 +880,9 @@ function resolveTopOfStack(state: GameState): GameState {
 
       // Determine origin flags so trigger conditions know what kind of tokens these are.
       // - fromDoublingSeason: tokens created when a DS/doubling trigger resolves
-      //   (prevents DS from doubling its own output; prevents CF from updating twice)
+      //   (prevents DS from re-triggering on its own output)
       // - fromChatterfang: tokens created when a Chatterfang-style trigger resolves
-      //   (prevents CF from looping; allows DS to double them once more)
+      //   (prevents CF from looping; DS already doubled CF's count via xValue update)
       const fromDoublingSeason = item.isDoublingTrigger === true;
       const fromChatterfang =
         !fromDoublingSeason &&
@@ -922,15 +922,16 @@ function resolveTopOfStack(state: GameState): GameState {
             const newX = oldX + item.xValue;
             stackItem.xValue = newX;
             if (stackItem.effect) {
-              stackItem.effect = stackItem.effect.replace(
-                `create ${oldX}`,
-                `create ${newX}`
-              );
+              // Update the token creation count AND any matching sacrifice/other numeric
+              // references that say the same number (e.g. "sacrifice 1 tokens" → "sacrifice 2 tokens")
+              stackItem.effect = stackItem.effect
+                .replace(`create ${oldX}`, `create ${newX}`)
+                .replace(`sacrifice ${oldX}`, `sacrifice ${newX}`);
             }
             addLog(
               state, "explanation", undefined,
               `${item.triggerSource || "Doubling Season"} updates ${stackItem.triggerSource || stackItem.name}: token count ${oldX} → ${newX}`,
-              `Because ${item.triggerSource || "Doubling Season"} created ${item.xValue} additional tokens, the pending trigger now creates ${newX} tokens when it resolves.`,
+              `Because ${item.triggerSource || "Doubling Season"} created ${item.xValue} additional tokens, the pending trigger now creates ${newX} tokens when it resolves. If the ability has a sacrifice clause, ${newX} tokens should be sacrificed.`,
               true
             );
           }
@@ -963,6 +964,17 @@ function resolveTopOfStack(state: GameState): GameState {
         if (etbTriggers.length > 0) {
           deferredTriggers.push({ triggers: etbTriggers, event: etbEvent });
         }
+      }
+
+      // If the resolving ability has a sacrifice clause (e.g. Chatterfang), remind the controller.
+      if (fromChatterfang && item.effect && /sacrifice\s+\d+/i.test(item.effect)) {
+        const sacrificeMatch = item.effect.match(/sacrifice\s+(\d+)/i);
+        const sacrificeCount = sacrificeMatch ? sacrificeMatch[1] : tokenCount.toString();
+        addLog(state, "explanation", item.controller,
+          `${item.triggerSource || item.name}: sacrifice ${sacrificeCount} token${Number(sacrificeCount) !== 1 ? "s" : ""}`,
+          `${item.triggerSource || item.name} requires sacrificing ${sacrificeCount} token${Number(sacrificeCount) !== 1 ? "s" : ""} as part of its effect. Remove them from the battlefield manually.`,
+          true
+        );
       }
     }
 

@@ -16,6 +16,11 @@ export function detectTriggers(
   event: GameEvent
 ): TriggerDefinition[] {
   const matched: TriggerDefinition[] = [];
+  // Doubling-effect triggers are collected separately so they are always appended
+  // AFTER all normal triggers. placeTriggers pushes them in array order onto the stack,
+  // so the last element ends up on top (LIFO). Doubling triggers must resolve FIRST
+  // (before Chatterfang-style triggers) so the xValue update runs before CF resolves.
+  const doublingTriggers: TriggerDefinition[] = [];
 
   for (const permanent of state.battlefield) {
     for (const trigger of permanent.triggers) {
@@ -28,10 +33,13 @@ export function detectTriggers(
     // These permanents use replacement-effect language in their oracle text, so no
     // trigger is parsed automatically. We detect them here and fire them as triggered
     // abilities so they appear on the stack and allow player ordering.
-    // Only fire when: tokens_created event, not already from DS (prevent doubling the doubling).
+    // Only fire when: tokens_created event, not already from DS (prevent doubling the doubling),
+    // and not from a Chatterfang-style trigger (DS already doubled CF's output via the xValue
+    // update that runs when DS resolves — firing DS again here would produce too many tokens).
     if (
       event.type === "tokens_created" &&
       !event.data?.fromDoublingSeason &&
+      !event.data?.fromChatterfang &&
       permanent.controller === event.sourceController
     ) {
       const oracle = (permanent.oracleText || "").toLowerCase();
@@ -41,7 +49,7 @@ export function detectTriggers(
       ) {
         const tokenCount = (event.data?.count as number) ?? 1;
         const tokenType = (event.data?.tokenType as string) ?? "tokens";
-        matched.push({
+        doublingTriggers.push({
           id: generateId(),
           event: "tokens_created",
           condition: "whenever one or more tokens are created under your control",
@@ -55,7 +63,9 @@ export function detectTriggers(
     }
   }
 
-  return apnapSort(matched, state.activePlayer);
+  // Doubling triggers go last so they're pushed last by placeTriggers → land on top of
+  // the stack → resolve first (LIFO), updating Chatterfang's xValue before CF resolves.
+  return apnapSort([...matched, ...doublingTriggers], state.activePlayer);
 }
 
 function triggerMatchesEvent(
