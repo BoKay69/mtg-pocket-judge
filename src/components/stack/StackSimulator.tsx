@@ -292,6 +292,7 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
     if (s.phase === "cast_announcement" && s.item.isStormCopy) return { badgeColor: "#8b5cf6", badgeLabel: `Storm Copy ${s.item.stormCopyIndex}`, borderClass: "border-purple-500", header: "Storm Copy" };
     if (s.phase === "cast_announcement") return { badgeColor: "#3b82f6", badgeLabel: "Cast", borderClass: "border-blue-500", header: "Spell Cast" };
     if (s.phase === "trigger_announcement" && s.item.name.startsWith("Storm —")) return { badgeColor: "#8b5cf6", badgeLabel: "Storm", borderClass: "border-purple-500", header: "Storm Trigger Fires" };
+    if (s.phase === "trigger_announcement" && s.item.name.endsWith(" — Replacement Effect")) return { badgeColor: "#10b981", badgeLabel: "Replace", borderClass: "border-emerald-500", header: "Replacement Effect" };
     if (s.phase === "trigger_announcement") return { badgeColor: "#f59e0b", badgeLabel: "Triggered", borderClass: "border-amber-500", header: "Trigger Fires" };
     if (s.item.isStormCopy) return { badgeColor: "#8b5cf6", badgeLabel: s.status === "fizzled" ? "Fizzled" : `Copy ${s.item.stormCopyIndex}`, borderClass: s.status === "fizzled" ? "border-red-500 opacity-60" : "border-purple-500", header: "Storm Copy Resolves" };
     return { badgeColor: s.status === "fizzled" ? "#dc2626" : "#22c55e", badgeLabel: s.status === "fizzled" ? "Fizzled" : "Resolved", borderClass: s.status === "fizzled" ? "border-red-500 opacity-60" : "border-green-500", header: "Resolves" };
@@ -378,7 +379,19 @@ function ResolutionModal({ steps, onClose, gs }: { steps: ResolutionStep[]; onCl
                     {step.item.effect && <div className="text-xs text-mtg-text-dim leading-relaxed line-clamp-4">{step.item.effect}</div>}
                   </div>
                 )}
-                {step.phase === "trigger_announcement" && (
+                {step.phase === "trigger_announcement" && step.item.name.endsWith(" — Replacement Effect") && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm font-display" style={{ color: "#10b981" }}>
+                      <span>↩</span>
+                      <span>{step.item.name.replace(" — Replacement Effect", "")} applies</span>
+                    </div>
+                    {step.causedByName && (
+                      <div className="text-xs text-mtg-text-muted">During resolution of: <span className="font-semibold text-mtg-text">{step.causedByName}</span></div>
+                    )}
+                    {step.item.effect && <div className="text-xs text-mtg-text-dim leading-relaxed">{step.item.effect}</div>}
+                  </div>
+                )}
+                {step.phase === "trigger_announcement" && !step.item.name.endsWith(" — Replacement Effect") && (
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2 text-sm font-display" style={{ color: "#f59e0b" }}>
                       <span>{LOG_ICONS["trigger"]}</span>
@@ -629,7 +642,7 @@ function AddPermanentForm({ gs, onAdd }: { gs: GameState; onAdd: (perm: Omit<Per
           {gs.playerOrder.map((pid) => <option key={pid} value={pid}>{gs.players[pid]!.label}</option>)}
         </select>
         <div className="flex gap-2">
-          <Button onClick={() => { if (!card) return; onAdd(cardToPermanent(card, controller)); setQuery(""); clearCard(); setShowForm(false); }} className="flex-1" size="sm" disabled={!card}>{card ? `Add ${card.name}` : "Select a card"}</Button>
+          <Button onClick={() => { if (!card) return; const perm = cardToPermanent(card, controller); console.log("[ADD_PERM_UI] name:", perm.name, "triggers:", perm.triggers.length, "oracle:", perm.oracleText?.slice(0, 100)); onAdd(perm); setQuery(""); clearCard(); setShowForm(false); }} className="flex-1" size="sm" disabled={!card}>{card ? `Add ${card.name}` : "Select a card"}</Button>
           <Button variant="ghost" onClick={() => { setShowForm(false); clearCard(); setQuery(""); }} size="sm">Cancel</Button>
         </div>
       </div>
@@ -1152,6 +1165,37 @@ function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]
       logEntries: logSlice,
       status: didFizzle || wasCountered ? "fizzled" : "resolved",
     });
+
+    // Inject a synthetic step for each replacement effect that applied during this resolution.
+    // These are marked by addLog entries with type "explanation" and text ending in
+    // " — Replacement Effect" (set by the DS/CF inline blocks in resolveTopOfStack).
+    if (!didFizzle && !wasCountered) {
+      const replacementEntries = logSlice.filter(
+        (e) => e.type === "explanation" && e.text.endsWith(" — Replacement Effect")
+      );
+      for (const entry of replacementEntries) {
+        const permName = entry.text.replace(" — Replacement Effect", "");
+        const bfPerm = state.battlefield.find((p) => p.name === permName);
+        resolutionSteps.push({
+          phase: "trigger_announcement",
+          item: {
+            id: entry.id,
+            type: "triggered_ability",
+            name: entry.text,
+            controller: entry.player ?? topItem.controller,
+            targets: [],
+            effect: entry.detail,
+            isManaAbility: false,
+            hasSplitSecond: false,
+            timestamp: 0,
+            imageUri: bfPerm?.imageUri,
+          },
+          logEntries: [entry],
+          status: "resolved",
+          causedByName: topItem.name,
+        });
+      }
+    }
   }
   const steps = [...announcementSteps, ...resolutionSteps];
 
@@ -1358,6 +1402,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   };
 
   const handleCast = (item: Omit<EngineStackItem, "id" | "timestamp">, triggerRulings?: ScryfallRuling[]) => {
+    console.log("[HANDLE_CAST] item:", item.name, "type:", item.type);
     if (item.type === "activated_ability") {
       dispatch({ type: "activate_ability", ability: item });
     } else {

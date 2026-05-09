@@ -497,7 +497,9 @@ function parseTokensFromEffect(effect: string, xValue?: number): TokenResult | n
 
   const count = resolveCount(tokenMatch[1], xValue);
   const description = tokenMatch[2].trim();
-  return { count, description: `${description} token${count !== 1 ? "s" : ""}` };
+  const result = { count, description: `${description} token${count !== 1 ? "s" : ""}` };
+  console.log(`[PARSE_TOKENS] effect="${effect}" xValue=${xValue} → count=${result.count} description="${result.description}"`);
+  return result;
 }
 
 interface DamageResult {
@@ -761,6 +763,7 @@ function resolveTopOfStack(state: GameState): GameState {
   if (state.stack.length === 0) return state;
 
   const item = state.stack.pop()!;
+  console.log(`[RESOLVE] name="${item.name}" type=${item.type} effect="${item.effect}" xValue=${item.xValue} isDoublingTrigger=${item.isDoublingTrigger} triggeredByEventId=${item.triggeredByEventId}`);
   state.priority.state = "resolving";
 
   // Check if targets are still legal
@@ -870,7 +873,30 @@ function resolveTopOfStack(state: GameState): GameState {
       item.effect.toLowerCase().includes("amass");
     if (tokenResult && !isArmyAmass) {
       const controllerPlayer = state.players[item.controller]!;
-      const tokenCount = tokenResult.count;
+      let tokenCount = tokenResult.count;
+
+      // ── Doubling Season inline replacement ─────────────────────────────────
+      // DS uses "twice as many … instead" language — a replacement effect, not a trigger.
+      // Applied here first so CF and every subsequent effect sees the already-doubled count.
+      const dsPerm = state.battlefield.find(
+        (p) =>
+          p.controller === item.controller &&
+          (p.oracleText || "").toLowerCase().includes("token") &&
+          ((p.oracleText || "").toLowerCase().includes("twice as many") ||
+            (p.oracleText || "").toLowerCase().includes("twice that many"))
+      );
+      if (dsPerm) {
+        const preDoubleCount = tokenCount;
+        tokenCount *= 2;
+        addLog(
+          state,
+          "explanation",
+          item.controller,
+          `${dsPerm.name} — Replacement Effect`,
+          `${preDoubleCount} → ${tokenCount} ${tokenResult.description} (doubles tokens being created)`,
+          true
+        );
+      }
 
       addLog(state, "game_event", item.controller,
         `${controllerPlayer.label} creates ${tokenCount} ${tokenResult.description}`,
@@ -910,34 +936,6 @@ function resolveTopOfStack(state: GameState): GameState {
         deferredTriggers.push({ triggers: tokenTriggers, event: tokensEvent });
       }
 
-      // If this is a Doubling Season trigger resolving, update any pending Chatterfang-style
-      // triggers from the same source event so they reflect the doubled token count.
-      if (fromDoublingSeason && item.triggeredByEventId && item.xValue !== undefined) {
-        for (const stackItem of state.stack) {
-          if (
-            stackItem.triggeredByEventId === item.triggeredByEventId &&
-            !stackItem.isDoublingTrigger
-          ) {
-            const oldX = stackItem.xValue ?? 0;
-            const newX = oldX + item.xValue;
-            stackItem.xValue = newX;
-            if (stackItem.effect) {
-              // Update the token creation count AND any matching sacrifice/other numeric
-              // references that say the same number (e.g. "sacrifice 1 tokens" → "sacrifice 2 tokens")
-              stackItem.effect = stackItem.effect
-                .replace(`create ${oldX}`, `create ${newX}`)
-                .replace(`sacrifice ${oldX}`, `sacrifice ${newX}`);
-            }
-            addLog(
-              state, "explanation", undefined,
-              `${item.triggerSource || "Doubling Season"} updates ${stackItem.triggerSource || stackItem.name}: token count ${oldX} → ${newX}`,
-              `Because ${item.triggerSource || "Doubling Season"} created ${item.xValue} additional tokens, the pending trigger now creates ${newX} tokens when it resolves. If the ability has a sacrifice clause, ${newX} tokens should be sacrificed.`,
-              true
-            );
-          }
-        }
-      }
-
       // Create each token as a Permanent and fire enters_battlefield events.
       // MTG rules: each token enters separately, each is its own ETB event.
       for (let i = 0; i < tokenCount; i++) {
@@ -975,6 +973,104 @@ function resolveTopOfStack(state: GameState): GameState {
           `${item.triggerSource || item.name} requires sacrificing ${sacrificeCount} token${Number(sacrificeCount) !== 1 ? "s" : ""} as part of its effect. Remove them from the battlefield manually.`,
           true
         );
+      }
+
+      // ── Chatterfang replacement effect ──────────────────────────────────────
+      // "If one or more tokens would be created under your control, those tokens plus
+      // that many 1/1 green Squirrel creature tokens are created instead."
+      // This uses replacement-effect language ("would … instead"), so parseTriggersFromOracle
+      // correctly ignores it. We detect it here and apply it inline.
+      // Guard: skip when a Doubling Season trigger is resolving — firing CF inside a DS
+      // resolution would create a DS↔CF infinite loop.
+      if (!fromDoublingSeason) {
+        const cfPerm = state.battlefield.find(
+          (p) =>
+            p.controller === item.controller &&
+            (p.oracleText || "").toLowerCase().includes("tokens would be created") &&
+            (p.oracleText || "").toLowerCase().includes("squirrel")
+        );
+        if (cfPerm) {
+          // CF creates "that many" Squirrels — "that many" is the post-DS doubled count.
+          // DS then applies again to CF's Squirrels (each creation event is independent).
+          let cfCount = tokenCount;
+          addLog(
+            state,
+            "explanation",
+            item.controller,
+            `${cfPerm.name} — Replacement Effect`,
+            `Creates ${cfCount} additional 1/1 green Squirrel token${cfCount !== 1 ? "s" : ""} (matching the ${tokenCount} token${tokenCount !== 1 ? "s" : ""} being created)`,
+            true
+          );
+          if (dsPerm) {
+            const preCfDouble = cfCount;
+            cfCount *= 2;
+            addLog(
+              state,
+              "explanation",
+              item.controller,
+              `${dsPerm.name} — Replacement Effect`,
+              `${preCfDouble} Squirrel token${preCfDouble !== 1 ? "s" : ""} → ${cfCount} (doubles Chatterfang's additional tokens)`,
+              true
+            );
+          }
+          addLog(
+            state,
+            "game_event",
+            item.controller,
+            `${controllerPlayer.label} creates ${cfCount} additional 1/1 green Squirrel token${cfCount !== 1 ? "s" : ""} (${cfPerm.name}${dsPerm ? ` + ${dsPerm.name}` : ""})`,
+            undefined,
+            true
+          );
+
+          const cfTokensEvent: GameEvent = {
+            id: generateId(),
+            type: "tokens_created",
+            timestamp: state.stepCount,
+            sourceId: cfPerm.id,
+            sourceName: cfPerm.name,
+            sourceController: item.controller,
+            data: {
+              count: cfCount,
+              tokenType: "1/1 green squirrel creature tokens",
+              fromDoublingSeason: false,
+              fromChatterfang: true,
+            },
+          };
+          state.eventLog.push(cfTokensEvent);
+          const cfTokenTriggers = detectTriggers(state, cfTokensEvent);
+          if (cfTokenTriggers.length > 0) {
+            deferredTriggers.push({ triggers: cfTokenTriggers, event: cfTokensEvent });
+          }
+
+          for (let i = 0; i < cfCount; i++) {
+            const squirrelPerm = createTokenPermanent("1/1 green squirrel creature tokens", item.controller);
+            const squirrelId = generateId();
+            const newSquirrel: Permanent = { ...squirrelPerm, id: squirrelId };
+            state.battlefield.push(newSquirrel);
+
+            addLog(
+              state,
+              "game_event",
+              item.controller,
+              `${squirrelPerm.name} enters the battlefield under ${controllerPlayer.label}'s control`
+            );
+
+            const squirrelEtbEvent: GameEvent = {
+              id: generateId(),
+              type: "enters_battlefield",
+              timestamp: state.stepCount,
+              sourceId: squirrelId,
+              sourceName: squirrelPerm.name,
+              sourceController: item.controller,
+              data: { type: "creature", isToken: true },
+            };
+            state.eventLog.push(squirrelEtbEvent);
+            const squirrelEtbTriggers = detectTriggers(state, squirrelEtbEvent);
+            if (squirrelEtbTriggers.length > 0) {
+              deferredTriggers.push({ triggers: squirrelEtbTriggers, event: squirrelEtbEvent });
+            }
+          }
+        }
       }
     }
 
@@ -1626,6 +1722,7 @@ function handleAddPermanent(
         })) as [CardFaceData, CardFaceData]
       : undefined,
   };
+  console.log("[ADD_PERM]", permanent.name, "triggers:", permanent.triggers.length, "oracleText:", JSON.stringify(permanent.oracleText?.slice(0, 80)));
   state.battlefield.push(newPerm);
   addLog(state, "game_event", permanent.controller,
     `${permanent.name} added to the battlefield`

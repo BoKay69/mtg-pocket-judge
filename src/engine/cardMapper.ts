@@ -154,6 +154,7 @@ export function cardToPermanent(
   const oracleText = frontFace?.oracle_text || card.oracle_text || "";
   const sourceName = frontFace?.name || card.name;
   const keywords = extractKeywords(card);
+  console.log("[CARD_TO_PERM]", sourceName, "oracleText:", JSON.stringify(oracleText?.slice(0, 120)));
   const triggers = parseTriggersFromOracle(oracleText, permId, sourceName, controller);
 
   // Build two-face data for DFC permanents

@@ -23,48 +23,24 @@ export function detectTriggers(
   const doublingTriggers: TriggerDefinition[] = [];
 
   for (const permanent of state.battlefield) {
+    if (event.type === "tokens_created") {
+      console.log(`[DETECT_TRIGGERS_SCAN] permanent="${permanent.name}" triggerCount=${permanent.triggers.length} triggers=[${permanent.triggers.map(t => t.event + ":\"" + t.condition + "\"").join(", ")}]`);
+    }
     for (const trigger of permanent.triggers) {
       if (triggerMatchesEvent(trigger, event, permanent, state)) {
         matched.push(trigger);
       }
     }
 
-    // Doubling Season / Parallel Lives: synthetic token-doubling trigger.
-    // These permanents use replacement-effect language in their oracle text, so no
-    // trigger is parsed automatically. We detect them here and fire them as triggered
-    // abilities so they appear on the stack and allow player ordering.
-    // Only fire when: tokens_created event, not already from DS (prevent doubling the doubling),
-    // and not from a Chatterfang-style trigger (DS already doubled CF's output via the xValue
-    // update that runs when DS resolves — firing DS again here would produce too many tokens).
-    if (
-      event.type === "tokens_created" &&
-      !event.data?.fromDoublingSeason &&
-      !event.data?.fromChatterfang &&
-      permanent.controller === event.sourceController
-    ) {
-      const oracle = (permanent.oracleText || "").toLowerCase();
-      if (
-        oracle.includes("token") &&
-        (oracle.includes("twice as many") || oracle.includes("twice that many"))
-      ) {
-        const tokenCount = (event.data?.count as number) ?? 1;
-        const tokenType = (event.data?.tokenType as string) ?? "tokens";
-        doublingTriggers.push({
-          id: generateId(),
-          event: "tokens_created",
-          condition: "whenever one or more tokens are created under your control",
-          effect: `create ${tokenCount} ${tokenType}`,
-          sourceId: permanent.id,
-          sourceName: permanent.name,
-          controller: permanent.controller,
-          isDoublingEffect: true,
-        });
-      }
-    }
   }
 
-  // Doubling triggers go last so they're pushed last by placeTriggers → land on top of
-  // the stack → resolve first (LIFO), updating Chatterfang's xValue before CF resolves.
+  // doublingTriggers is always empty now — Doubling Season is handled inline in
+  // resolveTopOfStack as a replacement effect, not as a stack trigger.
+  if (event.type === "tokens_created") {
+    console.log(`[DETECT_TRIGGERS] tokens_created event from "${event.sourceName}" count=${event.data?.count} fromDS=${event.data?.fromDoublingSeason} fromCF=${event.data?.fromChatterfang}`);
+    console.log(`[DETECT_TRIGGERS] matched normal triggers: [${matched.map(t => t.sourceName + "(" + t.event + ")").join(", ")}]`);
+    console.log(`[DETECT_TRIGGERS] matched doubling triggers: [${doublingTriggers.map(t => t.sourceName + "(isDoubling=" + t.isDoublingEffect + ")").join(", ")}]`);
+  }
   return apnapSort([...matched, ...doublingTriggers], state.activePlayer);
 }
 
@@ -510,29 +486,52 @@ function checkTokensCreatedCondition(
   event: GameEvent,
   source: Permanent
 ): boolean {
-  if (!trigger.condition) return true;
+  if (!trigger.condition) {
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" condition=null → true`);
+    return true;
+  }
   const cond = trigger.condition.toLowerCase();
 
   // Chatterfang-style triggers must not fire on tokens created by:
   //   • Doubling Season (would re-trigger CF on DS's extra tokens — use xValue update instead)
   //   • Another Chatterfang trigger (prevents exponential CF loops)
-  if (event.data?.fromDoublingSeason || event.data?.fromChatterfang) return false;
+  if (event.data?.fromDoublingSeason || event.data?.fromChatterfang) {
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" blocked: fromDS=${event.data?.fromDoublingSeason} fromCF=${event.data?.fromChatterfang} → false`);
+    return false;
+  }
 
   // Controller filter
   if (cond.includes("you create") || cond.includes("tokens you create") || cond.includes("under your control")) {
-    return event.sourceController === source.controller;
+    const result = event.sourceController === source.controller;
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" controller check: eventCtrl=${event.sourceController} sourceCtrl=${source.controller} → ${result}`);
+    return result;
   }
   if (cond.includes("opponent creates") || cond.includes("an opponent creates")) {
-    return event.sourceController !== source.controller;
+    const result = event.sourceController !== source.controller;
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" opponent check → ${result}`);
+    return result;
   }
 
   // Token type filter (e.g., "whenever a creature token enters")
   const tokenType = ((event.data?.tokenType as string) || "").toLowerCase();
-  if (cond.includes("creature token") && !tokenType.includes("creature")) return false;
-  if (cond.includes("treasure") && !tokenType.includes("treasure")) return false;
-  if (cond.includes("food") && !tokenType.includes("food")) return false;
-  if (cond.includes("clue") && !tokenType.includes("clue")) return false;
+  if (cond.includes("creature token") && !tokenType.includes("creature")) {
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" creature token filter → false`);
+    return false;
+  }
+  if (cond.includes("treasure") && !tokenType.includes("treasure")) {
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" treasure filter → false`);
+    return false;
+  }
+  if (cond.includes("food") && !tokenType.includes("food")) {
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" food filter → false`);
+    return false;
+  }
+  if (cond.includes("clue") && !tokenType.includes("clue")) {
+    console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" clue filter → false`);
+    return false;
+  }
 
+  console.log(`[CHECK_TOKENS_COND] source="${source.name}" cond="${cond}" → true (fallthrough)`);
   return true;
 }
 
@@ -565,6 +564,7 @@ export function parseTriggersFromOracle(
 
   for (const line of lines) {
     const trimmed = line.trim();
+    console.log("[PARSE_ORACLE_LINE]", permanentName, "line:", JSON.stringify(trimmed), "lower:", JSON.stringify(trimmed.toLowerCase()));
     if (!trimmed) continue;
 
     const lower = trimmed.toLowerCase();
@@ -601,6 +601,7 @@ export function parseTriggersFromOracle(
     const effectPart = commaIdx !== -1 ? triggerText.slice(commaIdx + 1).trim() : triggerText;
 
     const event = classifyTriggerEvent(conditionPart);
+    console.log("[PARSE_ORACLE_CLASSIFY]", permanentName, "conditionPart:", JSON.stringify(conditionPart), "event:", event);
     if (!event) continue;
 
     // Detect "and whenever/when <secondaryCondition>, <sharedEffect>" pattern
@@ -627,7 +628,7 @@ export function parseTriggersFromOracle(
       }
     }
 
-    triggers.push({
+    const newTrigger = {
       id: generateId(),
       event,
       condition: conditionPart.trim(),
@@ -635,7 +636,9 @@ export function parseTriggersFromOracle(
       sourceId: permanentId,
       sourceName: permanentName,
       controller,
-    });
+    };
+    console.log(`[PARSE_ORACLE] source="${permanentName}" event=${newTrigger.event} condition="${newTrigger.condition}" effect="${newTrigger.effect}"`);
+    triggers.push(newTrigger);
   }
 
   return triggers;
@@ -652,6 +655,7 @@ function classifyTriggerEvent(conditionPart: string): TriggerEvent | null {
   // ── Order matters: check more specific patterns first ──
 
   // TOKENS CREATED — must check before "enters_battlefield" since tokens enter the battlefield
+  console.log("[CLASSIFY_CHECK_TOKENS]", "c:", JSON.stringify(c), "hasToken:", c.includes("token"), "hasCreat:", c.includes("creat"));
   if (
     (c.includes("token") && (c.includes("creat") || c.includes("put"))) ||
     c.includes("one or more tokens are created") ||
