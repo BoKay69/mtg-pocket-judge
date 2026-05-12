@@ -120,6 +120,7 @@ export function processAction(
   currentState: GameState,
   action: UserAction
 ): GameState {
+  console.log("ENGINE ALIVE", action.type);
   // Save current state for undo
   saveHistory(currentState);
 
@@ -839,10 +840,14 @@ function resolveTopOfStack(state: GameState): GameState {
     for (const { player, count } of drawTargets) {
       const playerObj = state.players[player];
       if (!playerObj) continue;
+      // Each card drawn is its own event: counter increments per draw, triggers fire per draw.
+      // isDrawStep:false means "except the first in the draw step" exclusions never suppress
+      // draws from spells like Brainstorm — all N draws trigger independently.
       for (let i = 0; i < count; i++) {
         const prevDrawn = state.cardsDrawnThisTurn[player] ?? 0;
         const totalDrawn = prevDrawn + 1;
         state.cardsDrawnThisTurn[player] = totalDrawn;
+        console.log("[DRAW_LOOP]", playerObj.label, "draw", i + 1, "of", count, "totalDrawnThisTurn:", totalDrawn);
 
         addLog(state, "game_event", player,
           `${playerObj.label} draws a card`,
@@ -862,6 +867,7 @@ function resolveTopOfStack(state: GameState): GameState {
         if (drawTriggers.length > 0) {
           deferredTriggers.push({ triggers: drawTriggers, event: drawEvent });
         }
+        checkDrawBasedTransforms(state, player);
       }
     }
 
@@ -1084,6 +1090,31 @@ function resolveTopOfStack(state: GameState): GameState {
         namedTarget ? undefined : item.requiresTarget ? "Target: any target (player, creature, or planeswalker) — controller must declare" : undefined,
         true
       );
+      // Apply damage to the target — permanent gets damageMarked; player loses life
+      if (namedTarget) {
+        const targetPerm = state.battlefield.find(
+          (p) => (item.targets[0]?.id && p.id === item.targets[0].id) || p.name === namedTarget
+        );
+        if (targetPerm) {
+          targetPerm.damageMarked += dmg.amount;
+          addLog(state, "game_event", item.controller,
+            `${targetPerm.name} now has ${targetPerm.damageMarked} damage marked (toughness: ${targetPerm.currentToughness ?? targetPerm.baseToughness})`,
+            undefined, true
+          );
+        } else {
+          // Target might be a player — match by label
+          const targetPlayer = Object.values(state.players).find(
+            (p) => p?.label.toLowerCase() === namedTarget.toLowerCase()
+          );
+          if (targetPlayer) {
+            targetPlayer.life -= dmg.amount;
+            addLog(state, "game_event", item.controller,
+              `${targetPlayer.label} takes ${dmg.amount} damage (now ${targetPlayer.life} life)`,
+              undefined, true
+            );
+          }
+        }
+      }
       const dmgEvent: GameEvent = {
         id: generateId(),
         type: "deals_damage",
@@ -1099,6 +1130,8 @@ function resolveTopOfStack(state: GameState): GameState {
         deferredTriggers.push({ triggers: dmgTriggers, event: dmgEvent });
       }
     }
+    // SBAs after all damage from this effect is applied — catches lethal damage
+    checkStateBasedActions(state);
 
     // ── Destroy effects ───────────────────────────────────────────────────────
     if (parseDestroyFromEffect(item.effect)) {
@@ -1167,16 +1200,77 @@ function resolveTopOfStack(state: GameState): GameState {
     const amassResult = parseAmassFromEffect(item.effect, item.xValue);
     if (amassResult) {
       // "they amass" / "that player amasses" means the event's source (e.g. drawing player for Bowmasters)
+      // "they amass" → the drawing player owns the army (e.g. "whenever you draw, you amass")
+      // "that player amasses" → the ability's controller owns the army (e.g. Bowmasters controller)
       const amassController =
-        /\b(?:they|that player)\s+amass/i.test(item.effect ?? "") && item.eventSourceController
+        /\bthey\s+amass/i.test(item.effect ?? "") && item.eventSourceController
           ? item.eventSourceController
           : item.controller;
       handleAmass(state, amassController, amassResult.count, amassResult.type, item.name);
     }
 
     // ── Place all deferred triggers now that every effect has been processed ──
+    // Triggers are placed in chronological order so that later triggers (e.g. draw #3's
+    // Tamiyo transform) land on top of earlier ones and resolve first (LIFO). APNAP
+    // ordering was already applied inside detectTriggers; skip it here.
     for (const { triggers, event } of deferredTriggers) {
-      placeTriggers(state, triggers, event);
+      const sortedTriggers = [...triggers].sort((a, b) => {
+        if (a.controller === state.activePlayer && b.controller !== state.activePlayer) return 1;
+        if (a.controller !== state.activePlayer && b.controller === state.activePlayer) return -1;
+        return 0;
+      });
+      for (const trigger of sortedTriggers) {
+        const sourcePerm = state.battlefield.find((p) => p.id === trigger.sourceId)
+          || state.battlefield.find((p) => p.name === trigger.sourceName);
+
+        let xContext: number | undefined;
+        if (event.type === "tokens_created" && typeof event.data?.count === "number") {
+          xContext = event.data.count as number;
+        } else if (event.type === "deals_damage" && typeof event.data?.amount === "number") {
+          xContext = event.data.amount as number;
+        } else if (event.type === "cast_spell" && typeof event.data?.xValue === "number") {
+          xContext = event.data.xValue as number;
+        }
+
+        let effectText = trigger.effect;
+        if (trigger.isDoublingEffect && event.type === "tokens_created") {
+          const tokenType = (event.data?.tokenType as string) ?? "tokens";
+          effectText = `create ${xContext ?? 0} ${tokenType}`;
+        } else if (xContext !== undefined) {
+          effectText = effectText.replace(/that many/gi, String(xContext));
+          if (effectText.toLowerCase().includes("x")) {
+            effectText = `${effectText} (X = ${xContext})`;
+          }
+        }
+
+        const stackItem: EngineStackItem = {
+          id: generateId(),
+          type: "triggered_ability",
+          name: `${trigger.sourceName} trigger`,
+          controller: trigger.controller,
+          targets: [],
+          triggerSource: trigger.sourceName,
+          triggerEvent: trigger.event,
+          effect: effectText,
+          isManaAbility: false,
+          hasSplitSecond: false,
+          timestamp: state.stepCount,
+          imageUri: sourcePerm?.imageUri,
+          xValue: xContext,
+          requiresTarget: effectRequiresTarget(effectText),
+          eventSourceController: event.sourceController,
+          isDoublingTrigger: trigger.isDoublingEffect === true,
+          triggeredByEventId: event.id,
+        };
+
+        state.stack.push(stackItem);
+
+        addLog(state, "trigger", trigger.controller,
+          `${trigger.sourceName}'s ability triggers`,
+          `Condition: ${trigger.condition || "Triggered"}\nEffect: ${effectText}`,
+          true
+        );
+      }
     }
   }
 
@@ -1310,6 +1404,41 @@ function afterResolution(
   return state;
 }
 
+// ─── Draw-Based Transform Check ──────────────────────────────────────────────
+
+/**
+ * After each card draw, scan front-face DFCs controlled by the drawing player
+ * for oracle text matching "drawn N or more cards this/each turn". If the
+ * threshold is met, transform the permanent. Handles state-condition transforms
+ * distinct from trigger-based transforms (ordinal triggers use the stack path).
+ */
+function checkDrawBasedTransforms(state: GameState, drawingPlayer: PlayerId): void {
+  const drawn = state.cardsDrawnThisTurn[drawingPlayer] ?? 0;
+  const numWords: Record<string, number> = {
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+
+  for (const perm of state.battlefield) {
+    if (!perm.cardFaces || perm.currentFace !== 0) continue;
+    if (perm.controller !== drawingPlayer) continue;
+
+    const oracle = (perm.oracleText || "").toLowerCase();
+    if (!oracle.includes("transform")) continue;
+
+    const m = oracle.match(
+      /drawn\s+(\w+|\d+)\s+or\s+more\s+cards?\s+(?:this\s+turn|each\s+turn)/
+    );
+    if (!m) continue;
+
+    const raw = m[1].toLowerCase();
+    const threshold = numWords[raw] ?? parseInt(raw);
+    if (!isNaN(threshold) && drawn >= threshold) {
+      applyTransformToPermanent(state, perm);
+    }
+  }
+}
+
 // ─── State-Based Actions ─────────────────────────────────────────────────────
 
 function checkStateBasedActions(state: GameState): void {
@@ -1357,6 +1486,19 @@ function checkStateBasedActions(state: GameState): void {
     }
 
     for (const perm of toDestroy) {
+      destroyPermanent(state, perm);
+      actionsPerformed = true;
+    }
+
+    // Check planeswalkers with 0 or fewer loyalty
+    const planeswalkersToDie = state.battlefield.filter(
+      (p) => p.types.includes("planeswalker") && p.loyalty !== undefined && p.loyalty <= 0
+    );
+    for (const perm of planeswalkersToDie) {
+      addLog(state, "state_based_action", perm.controller,
+        `${perm.name} has ${perm.loyalty} loyalty — it's put into the graveyard`,
+        undefined, true
+      );
       destroyPermanent(state, perm);
       actionsPerformed = true;
     }
@@ -1646,6 +1788,7 @@ function advanceStep(state: GameState): GameState {
     if (drawTriggers.length > 0) {
       placeTriggers(state, drawTriggers, drawEvent);
     }
+    checkDrawBasedTransforms(state, ap);
   }
 
   // Reset priority for new step
@@ -1893,6 +2036,7 @@ function handleDrawCard(
     if (triggers.length > 0) {
       placeTriggers(state, triggers, drawEvent);
     }
+    checkDrawBasedTransforms(state, player);
   }
 
   return state;
@@ -1923,6 +2067,10 @@ function applyTransformToPermanent(state: GameState, perm: Permanent): void {
     sourceId: perm.id,
     controller: perm.controller,
   }));
+
+  if (newFace.types.includes("planeswalker")) {
+    perm.loyalty = newFace.baseLoyalty ?? 0;
+  }
 
   addLog(state, "game_event", perm.controller,
     `${oldName} transforms into ${newFace.name}`,

@@ -146,6 +146,7 @@ export interface CardFaceData {
   imageUri?: string;
   basePower?: number;
   baseToughness?: number;
+  baseLoyalty?: number;
   keywords: KeywordAbility[];
   triggers: TriggerDefinition[];
 }
@@ -175,6 +176,7 @@ export interface Permanent {
   tapped: boolean;
   summoningSick: boolean;
   counters: Record<string, number>; // e.g. { "+1/+1": 2 }
+  loyalty?: number; // Current loyalty for planeswalkers
   attachedTo?: string; // ID of permanent this is attached to
   oracleText?: string;
   imageUri?: string;

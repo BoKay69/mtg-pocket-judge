@@ -1337,6 +1337,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   });
   const [preset, setPreset] = useState<ScenarioPreset | null>(null);
   const [resSteps, setResSteps] = useState<ResolutionStep[] | null>(null);
+  const [preResolveGs, setPreResolveGs] = useState<GameState | null>(null);
   const [tokenImages, setTokenImages] = useState<Record<string, string>>({});
   const [declaredAttackers, setDeclaredAttackers] = useState<AttackerEntry[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -1396,6 +1397,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
 
   const handleResolve = () => {
     if (gs.stack.length === 0) return;
+    setPreResolveGs(JSON.parse(JSON.stringify(gs)));
     const { steps, finalState } = buildResolutionSteps(gs);
     setResSteps(steps);
     setGs(finalState);
@@ -1408,6 +1410,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
     } else {
       dispatch({ type: "cast_spell", spell: item });
     }
+    console.log("[CAST_DEBUG] cast complete, stack size:", gs.stack.length);
     if (triggerRulings && triggerRulings.length > 0) {
       setGs((prev) => ({
         ...prev,
@@ -1686,7 +1689,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
       )}
 
       {/* Resolution Modal */}
-      <AnimatePresence>{resSteps && <ResolutionModal steps={resSteps} onClose={() => setResSteps(null)} gs={gs} />}</AnimatePresence>
+      <AnimatePresence>{resSteps && <ResolutionModal steps={resSteps} onClose={() => { setResSteps(null); setPreResolveGs(null); }} gs={preResolveGs || gs} />}</AnimatePresence>
     </div>
   );
 }

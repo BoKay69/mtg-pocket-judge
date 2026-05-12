@@ -600,39 +600,68 @@ export function parseTriggersFromOracle(
     const conditionPart = commaIdx !== -1 ? triggerLower.slice(0, commaIdx) : triggerLower;
     const effectPart = commaIdx !== -1 ? triggerText.slice(commaIdx + 1).trim() : triggerText;
 
-    const event = classifyTriggerEvent(conditionPart);
-    console.log("[PARSE_ORACLE_CLASSIFY]", permanentName, "conditionPart:", JSON.stringify(conditionPart), "event:", event);
-    if (!event) continue;
+    // BUG 1 FIX: Detect "and whenever/when" in effectPart BEFORE calling classifyTriggerEvent,
+    // Split compound triggers: "When X enters and whenever Y draws, effect"
+    // The "and when/whenever" can appear in EITHER the conditionPart or the effectPart
+    const andWhenInCondition = conditionPart.match(/^(when(?:ever)?\s+.+?)\s+and\s+(when(?:ever)?\s+.+)$/i);
+    const andWhenInEffect = effectPart.match(/^and\s+(when(?:ever)?\s+.+?),\s*((?:amass|deals?|creates?|destroys?|draws?|exiles?|returns?|puts?|targets?|you\s).+)/i);
 
-    // Detect "and whenever/when <secondaryCondition>, <sharedEffect>" pattern
-    // e.g. Orcish Bowmasters: "When X enters the battlefield, and whenever an opponent draws a card, effect"
-    const andWhenMatch = effectPart.match(/^and\s+(when(?:ever)?\s+.+?),\s*(.+)/i);
-    let primaryEffect = effectPart;
-    if (andWhenMatch) {
-      const secondaryCondRaw = andWhenMatch[1].trim();
-      const sharedEffect = andWhenMatch[2].trim();
-      // Primary trigger gets just the shared effect
-      primaryEffect = sharedEffect;
-      // Create secondary trigger for the "and whenever" part
-      const secondaryEvent = classifyTriggerEvent(secondaryCondRaw.toLowerCase());
-      if (secondaryEvent) {
+    if (andWhenInCondition || andWhenInEffect) {
+      let primaryCond: string;
+      let secondaryCond: string;
+      let sharedEffect: string;
+
+      if (andWhenInCondition) {
+        primaryCond = andWhenInCondition[1].trim();
+        secondaryCond = andWhenInCondition[2].trim();
+        sharedEffect = effectPart;
+      } else {
+        primaryCond = conditionPart.trim();
+        secondaryCond = andWhenInEffect![1].trim();
+        sharedEffect = andWhenInEffect![2].trim();
+      }
+
+      const primaryEvent = classifyTriggerEvent(primaryCond);
+      console.log("[PARSE_ORACLE_CLASSIFY]", permanentName, "primaryCond:", JSON.stringify(primaryCond), "event:", primaryEvent);
+      if (primaryEvent) {
         triggers.push({
           id: generateId(),
-          event: secondaryEvent,
-          condition: secondaryCondRaw,
+          event: primaryEvent,
+          condition: primaryCond,
           effect: sharedEffect,
           sourceId: permanentId,
           sourceName: permanentName,
           controller,
         });
+        console.log(`[PARSE_ORACLE] source="${permanentName}" event=${primaryEvent} condition="${primaryCond}" effect="${sharedEffect}"`);
       }
+
+      const secondaryEvent = classifyTriggerEvent(secondaryCond.toLowerCase());
+      console.log("[PARSE_ORACLE_CLASSIFY]", permanentName, "secondaryCond:", JSON.stringify(secondaryCond), "event:", secondaryEvent);
+      if (secondaryEvent) {
+        triggers.push({
+          id: generateId(),
+          event: secondaryEvent,
+          condition: secondaryCond,
+          effect: sharedEffect,
+          sourceId: permanentId,
+          sourceName: permanentName,
+          controller,
+        });
+        console.log(`[PARSE_ORACLE] source="${permanentName}" event=${secondaryEvent} condition="${secondaryCond}" effect="${sharedEffect}"`);
+      }
+      continue;
     }
+
+    const event = classifyTriggerEvent(conditionPart);
+    console.log("[PARSE_ORACLE_CLASSIFY]", permanentName, "conditionPart:", JSON.stringify(conditionPart), "event:", event);
+    if (!event) continue;
 
     const newTrigger = {
       id: generateId(),
       event,
       condition: conditionPart.trim(),
-      effect: primaryEffect,
+      effect: effectPart,
       sourceId: permanentId,
       sourceName: permanentName,
       controller,
