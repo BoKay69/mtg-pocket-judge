@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Format } from "@/types";
 import { FORMATS } from "@/data/formats";
@@ -78,22 +79,22 @@ interface FormatPickerProps {
 
 export function FormatPicker({ selected, onSelect }: FormatPickerProps) {
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-3">
       {FORMATS.map((f) => (
         <button
           key={f.id}
           onClick={() => onSelect(f.id)}
           className={cn(
-            "p-3 rounded-xl border text-center transition-all duration-200",
+            "p-4 rounded-xl border text-center transition-all duration-200",
             selected === f.id
               ? "border-mtg-gold bg-mtg-gold/10"
               : "border-mtg-border bg-mtg-surface hover:border-mtg-border-light"
           )}
         >
-          <div className="text-xl mb-1">{f.icon}</div>
+          <div className="text-2xl mb-1.5">{f.icon}</div>
           <div
             className={cn(
-              "text-xs font-display font-semibold",
+              "text-sm font-display font-semibold",
               selected === f.id ? "text-mtg-gold" : "text-mtg-text"
             )}
           >
@@ -104,6 +105,62 @@ export function FormatPicker({ selected, onSelect }: FormatPickerProps) {
           </div>
         </button>
       ))}
+    </div>
+  );
+}
+
+// ─── Format Dropdown ─────────────────────────────────────────────────────────
+
+interface FormatDropdownProps {
+  selected: Format;
+  onSelect: (format: Format) => void;
+}
+
+export function FormatDropdown({ selected, onSelect }: FormatDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const current = FORMATS.find((f) => f.id === selected);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border border-mtg-border bg-mtg-surface transition-all duration-200 hover:border-mtg-border-light"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-base">{current?.icon}</span>
+          <span className="text-xs font-display font-semibold text-mtg-gold">
+            {current?.label}
+          </span>
+          <span className="text-[10px] text-mtg-text-muted">{current?.description}</span>
+        </div>
+        <span className={cn("text-mtg-text-dim text-xs transition-transform duration-200", open && "rotate-180")}>
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-mtg-surface border border-mtg-border rounded-xl shadow-lg overflow-hidden">
+          <div className="grid grid-cols-2 gap-2 p-2">
+            {FORMATS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => { onSelect(f.id); setOpen(false); }}
+                className={cn(
+                  "p-3 rounded-lg border text-center transition-all duration-200",
+                  selected === f.id
+                    ? "border-mtg-gold bg-mtg-gold/10"
+                    : "border-mtg-border bg-mtg-bg hover:border-mtg-border-light"
+                )}
+              >
+                <div className="text-lg mb-1">{f.icon}</div>
+                <div className={cn("text-xs font-display font-semibold", selected === f.id ? "text-mtg-gold" : "text-mtg-text")}>
+                  {f.label}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
