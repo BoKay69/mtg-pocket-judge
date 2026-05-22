@@ -91,7 +91,6 @@ export function FormatPicker({ selected, onSelect }: FormatPickerProps) {
               : "border-mtg-border bg-mtg-surface hover:border-mtg-border-light"
           )}
         >
-          <div className="text-2xl mb-1.5">{f.icon}</div>
           <div
             className={cn(
               "text-sm font-display font-semibold",
@@ -127,7 +126,6 @@ export function FormatDropdown({ selected, onSelect }: FormatDropdownProps) {
         className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border border-mtg-border bg-mtg-surface transition-all duration-200 hover:border-mtg-border-light"
       >
         <div className="flex items-center gap-2">
-          <span className="text-base">{current?.icon}</span>
           <span className="text-xs font-display font-semibold text-mtg-gold">
             {current?.label}
           </span>
@@ -152,7 +150,6 @@ export function FormatDropdown({ selected, onSelect }: FormatDropdownProps) {
                     : "border-mtg-border bg-mtg-bg hover:border-mtg-border-light"
                 )}
               >
-                <div className="text-lg mb-1">{f.icon}</div>
                 <div className={cn("text-xs font-display font-semibold", selected === f.id ? "text-mtg-gold" : "text-mtg-text")}>
                   {f.label}
                 </div>

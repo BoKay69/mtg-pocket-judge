@@ -176,13 +176,19 @@ export function CardSearch({ format }: CardSearchProps) {
 
                   {/* Format legality */}
                   <div className="mt-2">
-                    <Badge
-                      color={getLegalityColor(
-                        selectedCard.legalities[format] || "not_legal"
-                      )}
-                    >
-                      {format}: {selectedCard.legalities[format] || "not legal"}
-                    </Badge>
+                    {format === "premodern" ? (
+                      <Badge color="#6b7280">
+                        premodern: community format
+                      </Badge>
+                    ) : (
+                      <Badge
+                        color={getLegalityColor(
+                          selectedCard.legalities[format] || "not_legal"
+                        )}
+                      >
+                        {format}: {selectedCard.legalities[format] || "not legal"}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
@@ -238,8 +244,10 @@ export function CardSearch({ format }: CardSearchProps) {
                       "pioneer",
                       "modern",
                       "legacy",
+                      "vintage",
                       "commander",
                       "pauper",
+                      "premodern",
                     ] as Format[]
                   ).map((f) => (
                     <div
@@ -256,16 +264,22 @@ export function CardSearch({ format }: CardSearchProps) {
                       >
                         {f}
                       </span>
-                      <span
-                        style={{
-                          color: getLegalityColor(
-                            selectedCard.legalities[f] || "not_legal"
-                          ),
-                        }}
-                        className="capitalize font-semibold"
-                      >
-                        {selectedCard.legalities[f] || "not legal"}
-                      </span>
+                      {f === "premodern" ? (
+                        <span className="text-[10px] text-mtg-text-muted font-semibold">
+                          see premodernmagic.com
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            color: getLegalityColor(
+                              selectedCard.legalities[f] || "not_legal"
+                            ),
+                          }}
+                          className="capitalize font-semibold"
+                        >
+                          {selectedCard.legalities[f] || "not legal"}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>

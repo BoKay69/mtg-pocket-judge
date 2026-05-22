@@ -57,6 +57,7 @@ export type Format =
   | "pioneer"
   | "pauper"
   | "vintage"
+  | "premodern"
   | "historic"
   | "alchemy";
 
@@ -122,7 +123,6 @@ export type KeywordCategory =
 export interface FormatInfo {
   id: Format;
   label: string;
-  icon: string;
   description: string;
   minDeckSize: number;
   maxCopies: number;

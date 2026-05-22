@@ -606,11 +606,11 @@ function SimulatorModal({ format, onClose }: { format: string; onClose: () => vo
     >
       <div
         className="relative z-10 flex flex-col rounded-2xl overflow-hidden bg-mtg-surface border border-mtg-border shadow-2xl"
-        style={{ width: "90vw", height: "95vh" }}
+        style={{ width: "95vw", maxWidth: "500px", height: "95vh" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button — fixed above scrollable content */}
-        <div className="flex-shrink-0 flex justify-end px-3 py-2 bg-mtg-surface border-b border-mtg-border/40">
+        <div className="flex-shrink-0 flex justify-end px-4 py-2 bg-mtg-surface border-b border-mtg-border/40">
           <button
             onClick={onClose}
             className="w-9 h-9 rounded-full border border-mtg-gold/60 bg-mtg-gold/15 text-mtg-gold text-xl font-bold leading-none flex items-center justify-center hover:bg-mtg-gold/30 hover:border-mtg-gold transition-colors shadow-md"
@@ -620,7 +620,7 @@ function SimulatorModal({ format, onClose }: { format: string; onClose: () => vo
         </div>
 
         {/* Scrollable simulator content */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4">
           <StackSimulator format={format} />
         </div>
       </div>
