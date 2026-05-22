@@ -270,8 +270,9 @@ export function LifeCounter({
 
   const simulatorFormat = players.length === 4 ? "commander" : "modern";
 
-  const utilityModal = utilityOpen && (
+  const utilityModal = utilityOpen ? (
     <UtilityModal
+      key="utility-modal"
       players={players}
       monarchId={monarchId}
       initiativeId={initiativeId}
@@ -285,14 +286,15 @@ export function LifeCounter({
       onClose={() => setUtilityOpen(false)}
       onOpenSimulator={() => { setUtilityOpen(false); setSimulatorOpen(true); }}
     />
-  );
+  ) : null;
 
-  const simulatorModal = simulatorOpen && (
+  const simulatorModal = simulatorOpen ? (
     <SimulatorModal
+      key="simulator-modal"
       format={simulatorFormat}
       onClose={() => setSimulatorOpen(false)}
     />
-  );
+  ) : null;
 
   // ── Fullscreen layout ──────────────────────────────────────────────────────
   if (fullscreen) {
@@ -599,10 +601,9 @@ function SimulatorModal({ format, onClose }: { format: string; onClose: () => vo
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
-
       <div
         className="relative z-10 flex flex-col rounded-2xl overflow-hidden bg-mtg-surface border border-mtg-border shadow-2xl"
         style={{ width: "90vw", height: "95vh" }}
