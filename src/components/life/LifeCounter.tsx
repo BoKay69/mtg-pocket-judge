@@ -23,11 +23,11 @@ interface Player {
 
 type Rotation = 0 | 90 | 180 | 270;
 
-const COUNTER_CONFIGS: { key: CounterKey; icon: string; color: string; step: number }[] = [
-  { key: "poison",       icon: "☠",  color: "#22c55e", step: 1 },
-  { key: "energy",       icon: "⚡", color: "#f59e0b", step: 1 },
-  { key: "experience",   icon: "✦",  color: "#8b5cf6", step: 1 },
-  { key: "commanderTax", icon: "👑", color: "#c9a961", step: 2 },
+const COUNTER_CONFIGS: { key: CounterKey; icon?: string; iconSrc?: string; color: string; step: number }[] = [
+  { key: "poison",       iconSrc: "/icons/poison.svg",     color: "#22c55e", step: 1 },
+  { key: "energy",       iconSrc: "/icons/energy.svg",     color: "#f59e0b", step: 1 },
+  { key: "experience",   iconSrc: "/icons/experience.svg", color: "#8b5cf6", step: 1 },
+  { key: "commanderTax", icon: "👑",                       color: "#c9a961", step: 2 },
 ];
 
 const DICE_TYPES = [4, 6, 8, 10, 12, 20];
@@ -963,12 +963,14 @@ function GamePanel({
 
 function CounterPill({
   icon,
+  iconSrc,
   color,
   value,
   onIncrement,
   onDecrement,
 }: {
-  icon: string;
+  icon?: string;
+  iconSrc?: string;
   color: string;
   value: number;
   onIncrement: () => void;
@@ -994,7 +996,10 @@ function CounterPill({
         className="flex items-center gap-0.5 pr-1.5 py-0.5 text-[10px] leading-none transition-opacity active:opacity-50 hover:opacity-70"
         style={{ color }}
       >
-        <span className="text-[9px]">{icon}</span>
+        {iconSrc
+          ? <img src={iconSrc} alt="" className="w-4 h-4 inline-block" style={{ filter: `drop-shadow(0 0 0 ${color})`, opacity: 0.85 }} />
+          : <span className="text-[9px]">{icon}</span>
+        }
         <span className="font-display font-bold tabular-nums">{value}</span>
       </button>
     </div>
@@ -1072,10 +1077,11 @@ function CounterBar({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex items-center gap-1 flex-wrap justify-center">
-        {COUNTER_CONFIGS.map(({ key, icon, color, step }) => (
+        {COUNTER_CONFIGS.map(({ key, icon, iconSrc, color, step }) => (
           <CounterPill
             key={key}
             icon={icon}
+            iconSrc={iconSrc}
             color={color}
             value={player[key]}
             onIncrement={() => onChangeCounter(key, step)}

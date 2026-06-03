@@ -112,6 +112,10 @@ export interface KeywordEntry {
 
 export type KeywordCategory =
   | "Evergreen"
+  | "Former Evergreen"
+  | "Deciduous"
+  | "Set Mechanics"
+  | "Keyword Actions"
   | "Spell Types"
   | "Stack & Priority"
   | "Combat"
