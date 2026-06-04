@@ -40,7 +40,7 @@ export function AppHeader() {
 interface Tab {
   id: string;
   label: string;
-  icon: string;
+  iconSrc: string;
 }
 
 interface TabBarProps {
@@ -63,7 +63,9 @@ export function TabBar({ tabs, active, onChange }: TabBarProps) {
               : "text-mtg-text-dim hover:text-mtg-text"
           )}
         >
-          {tab.icon} {tab.label}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={tab.iconSrc} alt="" className="w-4 h-4 inline-block align-middle" />
+          <span className="align-middle"> {tab.label}</span>
         </button>
       ))}
     </div>

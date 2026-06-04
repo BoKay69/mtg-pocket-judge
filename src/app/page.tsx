@@ -11,10 +11,10 @@ import { SectionLabel } from "@/components/ui";
 import type { Format } from "@/types";
 
 const TABS = [
-  { id: "simulator", label: "Simulator", icon: "⚖" },
-  { id: "glossary", label: "Glossary", icon: "📖" },
-  { id: "search", label: "Search", icon: "🔍" },
-  { id: "life", label: "Life", icon: "♥" },
+  { id: "simulator", label: "Simulator", iconSrc: "/icons/robot.svg" },
+  { id: "glossary", label: "Glossary", iconSrc: "/icons/book.svg" },
+  { id: "search", label: "Search", iconSrc: "/icons/glass.svg" },
+  { id: "life", label: "Life", iconSrc: "/icons/heart.svg" },
 ];
 
 export default function HomePage() {

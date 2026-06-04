@@ -25,9 +25,9 @@ type Rotation = 0 | 90 | 180 | 270;
 
 const COUNTER_CONFIGS: { key: CounterKey; icon?: string; iconSrc?: string; color: string; step: number }[] = [
   { key: "poison",       iconSrc: "/icons/poison.svg",     color: "#22c55e", step: 1 },
-  { key: "energy",       iconSrc: "/icons/energy.svg",     color: "#f59e0b", step: 1 },
+  { key: "energy",       iconSrc: "/icons/Energy.svg",     color: "#f59e0b", step: 1 },
   { key: "experience",   iconSrc: "/icons/experience.svg", color: "#8b5cf6", step: 1 },
-  { key: "commanderTax", icon: "👑",                       color: "#c9a961", step: 2 },
+  { key: "commanderTax", iconSrc: "/icons/crown.svg",      color: "#c9a961", step: 1 },
 ];
 
 const DICE_TYPES = [4, 6, 8, 10, 12, 20];
@@ -997,7 +997,7 @@ function CounterPill({
         style={{ color }}
       >
         {iconSrc
-          ? <img src={iconSrc} alt="" className="w-4 h-4 inline-block" style={{ filter: `drop-shadow(0 0 0 ${color})`, opacity: 0.85 }} />
+          ? <img src={iconSrc} alt="" className="w-4 h-4 inline-block" style={{ filter: `drop-shadow(0 0 0 ${color})`, opacity: 0.85, mixBlendMode: "screen" }} />
           : <span className="text-[9px]">{icon}</span>
         }
         <span className="font-display font-bold tabular-nums">{value}</span>
