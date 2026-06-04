@@ -6,8 +6,6 @@ import { createInitialState, processAction, canUndo, cardToPermanent, cardToStac
 import type { GameState, PlayerId, EngineStackItem, Permanent, LogEntry, TurnStep } from "@/engine/types";
 import { STEP_LABELS } from "@/engine/types";
 import { generateId } from "@/engine/utils";
-import { SCENARIO_PRESETS, loadPreset, hydratePresetImages } from "@/data/presets";
-import type { ScenarioPreset } from "@/data/presets";
 import { getMetaDecks } from "@/data/metaDecks";
 import type { ActivatedAbilityInfo } from "@/engine";
 import { Button, Card, Badge, SectionLabel } from "@/components/ui";
@@ -36,34 +34,6 @@ const PHASE_OPTIONS: { value: TurnStep; label: string }[] = [
   { value: "main_2", label: "Main Phase 2" },
   { value: "end_step", label: "End Step" },
 ];
-
-// ─── Scenario Dropdown ───────────────────────────────────────────────────────
-
-function ScenarioDropdown({ onSelect }: { onSelect: (p: ScenarioPreset) => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mb-3">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-mtg-border bg-mtg-card text-sm font-display font-semibold text-mtg-text-dim hover:border-mtg-border-light transition-all">
-        <span>{"\u{1F4DA}"} Example Scenarios</span>
-        <span className={cn("transition-transform text-xs", open && "rotate-180")}>{"\u25BE"}</span>
-      </button>
-      <AnimatePresence>{open && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-          <div className="mt-1.5 space-y-1.5 max-h-64 overflow-y-auto">
-            {SCENARIO_PRESETS.map((p) => (
-              <button key={p.id} onClick={() => { onSelect(p); setOpen(false); }} className="w-full text-left">
-                <Card className="!p-3 hover:!border-mtg-gold/50 transition-all">
-                  <div className="flex items-center gap-2"><span className="text-xs font-display font-bold text-mtg-text">{p.name}</span><Badge>{p.category}</Badge></div>
-                  <p className="text-[11px] text-mtg-text-dim mt-0.5">{p.description}</p>
-                </Card>
-              </button>
-            ))}
-          </div>
-        </motion.div>
-      )}</AnimatePresence>
-    </div>
-  );
-}
 
 // ─── Player Panel & Grid ─────────────────────────────────────────────────────
 
@@ -1099,25 +1069,6 @@ function ActionLog({ log, logEndRef }: { log: LogEntry[]; logEndRef: React.RefOb
   );
 }
 
-// ─── Lesson Banner ───────────────────────────────────────────────────────────
-
-function LessonBanner({ preset }: { preset: ScenarioPreset }) {
-  const [exp, setExp] = useState(false);
-  return (
-    <button onClick={() => setExp(!exp)} className="w-full text-left">
-      <Card className="!p-3 !border-mtg-gold/30 bg-mtg-gold/5">
-        <div className="flex items-start gap-2">
-          <span className="text-sm mt-0.5">{"\u{1F4CB}"}</span>
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-display font-bold text-mtg-gold">{preset.name}<span className="text-mtg-text-muted font-normal ml-2">{exp ? "\u25BE" : "\u25B8"} Key lesson</span></div>
-            {exp && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="text-xs text-mtg-text leading-relaxed mt-1.5">{preset.lesson}</motion.p>}
-          </div>
-        </div>
-      </Card>
-    </button>
-  );
-}
-
 // ─── Resolution Logic ────────────────────────────────────────────────────────
 
 function buildResolutionSteps(beforeState: GameState): { steps: ResolutionStep[]; finalState: GameState } {
@@ -1335,7 +1286,6 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
     const c = format === "commander";
     return createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 });
   });
-  const [preset, setPreset] = useState<ScenarioPreset | null>(null);
   const [resSteps, setResSteps] = useState<ResolutionStep[] | null>(null);
   const [preResolveGs, setPreResolveGs] = useState<GameState | null>(null);
   const [tokenImages, setTokenImages] = useState<Record<string, string>>({});
@@ -1346,7 +1296,6 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   useEffect(() => {
     const c = format === "commander";
     setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 }));
-    setPreset(null);
   }, [format]);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [gs.actionLog.length]);
@@ -1372,8 +1321,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
   const dispatch = useCallback((a: Parameters<typeof processAction>[1]) => { setGs(p => processAction(p, a)); }, []);
 
   const handleReset = () => {
-    if (preset) { setGs(loadPreset(preset, format)); }
-    else { const c = format === "commander"; setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 })); }
+    const c = format === "commander"; setGs(createInitialState({ format, playerCount: c ? 4 : 2, startingLife: c ? 40 : 20 }));
   };
 
   const handlePhaseChange = (step: TurnStep) => {
@@ -1466,10 +1414,6 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           <Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button>
         </div>
       </div>
-
-      {/* Scenario picker */}
-      <ScenarioDropdown onSelect={(p) => { setPreset(p); setGs(loadPreset(p, format)); }} />
-      {preset && <LessonBanner preset={preset} />}
 
       {/* ── Step 1: Turn & Phase ─────────────────────────────────── */}
       <Card className="!p-3">
