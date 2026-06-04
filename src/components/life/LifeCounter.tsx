@@ -32,14 +32,14 @@ const COUNTER_CONFIGS: { key: CounterKey; icon?: string; iconSrc?: string; color
 
 const DICE_TYPES = [4, 6, 8, 10, 12, 20];
 
-const TOOLS: { id: ToolId; icon: string; label: string }[] = [
-  { id: "dice",       icon: "🎲", label: "Dice" },
-  { id: "coin",       icon: "🪙", label: "Coin" },
-  { id: "monarch",    icon: "👑", label: "Monarch" },
-  { id: "initiative", icon: "⚔️", label: "Initiative" },
-  { id: "daynight",   icon: "☀️", label: "Day/Night" },
-  { id: "storm",      icon: "🌊", label: "Storm" },
-  { id: "game",       icon: "⚙",  label: "Game" },
+const TOOLS: { id: ToolId; icon: string; iconSrc?: string; label: string }[] = [
+  { id: "dice",       icon: "🎲", iconSrc: "/icons/d20.svg",       label: "Dice" },
+  { id: "coin",       icon: "🪙",                                   label: "Coin" },
+  { id: "monarch",    icon: "👑", iconSrc: "/icons/monarch.svg",   label: "Monarch" },
+  { id: "initiative", icon: "⚔️", iconSrc: "/icons/initiative.svg", label: "Initiative" },
+  { id: "daynight",   icon: "☀️",                                   label: "Day/Night" },
+  { id: "storm",      icon: "🌊", iconSrc: "/icons/storm.svg",     label: "Storm" },
+  { id: "game",       icon: "⚙",                                    label: "Game" },
 ];
 
 function makePlayers(count: number, life: number): Player[] {
@@ -532,7 +532,9 @@ function UtilityModal({
                   : "text-mtg-text-muted hover:text-mtg-text"
               )}
             >
-              {tool.icon}
+              {tool.iconSrc
+                ? <img src={tool.iconSrc} alt={tool.label} className="w-5 h-5 inline-block" />
+                : tool.icon}
               {activeTool === tool.id && (
                 <motion.div
                   layoutId="tool-tab-indicator"
