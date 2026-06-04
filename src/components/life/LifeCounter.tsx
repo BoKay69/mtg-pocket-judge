@@ -585,7 +585,7 @@ function UtilityModal({
             onClick={onOpenSimulator}
             className="w-full py-2.5 rounded-lg border border-mtg-gold/30 bg-mtg-gold/8 text-mtg-gold font-display text-[11px] tracking-wider hover:bg-mtg-gold/15 hover:border-mtg-gold/50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
-            <span>🧪</span>
+            <img src="/icons/robot.svg" alt="Simulator" className="w-5 h-5 inline-block" />
             <span>Simulator</span>
           </button>
         </div>
