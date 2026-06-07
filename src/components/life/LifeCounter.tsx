@@ -34,10 +34,10 @@ const DICE_TYPES = [4, 6, 8, 10, 12, 20];
 
 const TOOLS: { id: ToolId; icon: string; iconSrc?: string; label: string }[] = [
   { id: "dice",       icon: "🎲", iconSrc: "/icons/d20.svg",       label: "Dice" },
-  { id: "coin",       icon: "🪙",                                   label: "Coin" },
+  { id: "coin",       icon: "🪙", iconSrc: "/icons/coin.svg",       label: "Coin" },
   { id: "monarch",    icon: "👑", iconSrc: "/icons/monarch.svg",   label: "Monarch" },
   { id: "initiative", icon: "⚔️", iconSrc: "/icons/initiative.svg", label: "Initiative" },
-  { id: "daynight",   icon: "☀️",                                   label: "Day/Night" },
+  { id: "daynight",   icon: "☀️", iconSrc: "/icons/sun-moon.svg",   label: "Day/Night" },
   { id: "storm",      icon: "🌊", iconSrc: "/icons/storm.svg",     label: "Storm" },
   { id: "game",       icon: "⚙",                                    label: "Game" },
 ];
@@ -253,7 +253,7 @@ export function LifeCounter({
   // Center bar indicators (left and right of the logo)
   const leftIndicators = (
     <div className="flex-1 flex items-center justify-end pr-3 gap-1.5 min-w-0">
-      {dayNight && <span className="text-base leading-none">{dayNight === "day" ? "☀️" : "🌙"}</span>}
+      {dayNight && <span className="text-base leading-none"><img src={dayNight === "day" ? "/icons/sun.svg" : "/icons/moon.svg"} alt={dayNight === "day" ? "Day" : "Night"} className="w-4 h-4 inline-block" /></span>}
       {monarchId !== null && <span className="text-base leading-none opacity-80">👑</span>}
     </div>
   );
@@ -280,7 +280,7 @@ export function LifeCounter({
       stormCount={stormCount}
       onSetMonarch={setMonarchId}
       onSetInitiative={setInitiativeId}
-      onSetDayNight={setDayNight}
+      onSetDayNight={(v) => { setDayNight(v); setUtilityOpen(false); }}
       onSetStormCount={setStormCount}
       menuItems={menuItems}
       onClose={() => setUtilityOpen(false)}
@@ -483,7 +483,9 @@ function UtilityModal({
   const [activeTool, setActiveTool] = useState<ToolId>("dice");
 
   const displayTools = TOOLS.map((t) =>
-    t.id === "daynight" ? { ...t, icon: dayNight === "night" ? "🌙" : "☀️" } : t
+    t.id === "daynight"
+      ? { ...t, iconSrc: dayNight === "day" ? "/icons/sun.svg" : dayNight === "night" ? "/icons/moon.svg" : "/icons/sun-moon.svg" }
+      : t
   );
 
   return (
@@ -852,19 +854,22 @@ function DayNightPanel({
   value: "day" | "night" | null;
   onSet: (v: "day" | "night" | null) => void;
 }) {
-  const options: { v: "day" | "night" | null; icon: string; label: string }[] = [
+  const options: { v: "day" | "night" | null; icon: string; iconSrc?: string; label: string }[] = [
     { v: null,    icon: "—",  label: "None" },
-    { v: "day",   icon: "☀️", label: "Day" },
-    { v: "night", icon: "🌙", label: "Night" },
+    { v: "day",   icon: "☀️", iconSrc: "/icons/sun.svg",  label: "Day" },
+    { v: "night", icon: "🌙", iconSrc: "/icons/moon.svg", label: "Night" },
   ];
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-center font-display text-[10px] tracking-wide text-mtg-text-muted">
-        {value === null ? "Day/Night not tracking" : value === "day" ? "☀️ It is Day" : "🌙 It is Night"}
+        {value === null
+          ? "Day/Night not tracking"
+          : <><img src={value === "day" ? "/icons/sun.svg" : "/icons/moon.svg"} alt={value === "day" ? "Day" : "Night"} className="w-4 h-4 inline-block" /> {value === "day" ? "It is Day" : "It is Night"}</>
+        }
       </p>
       <div className="grid grid-cols-3 gap-2">
-        {options.map(({ v, icon, label }) => (
+        {options.map(({ v, icon, iconSrc, label }) => (
           <button
             key={label}
             onClick={() => onSet(v)}
@@ -875,7 +880,9 @@ function DayNightPanel({
                 : "border-mtg-border/60 text-mtg-text-muted hover:border-mtg-gold/30 hover:text-mtg-text"
             )}
           >
-            <span className="text-xl leading-none">{icon}</span>
+            <span className="text-xl leading-none">
+              {iconSrc ? <img src={iconSrc} alt={label} className="w-5 h-5 inline-block" /> : icon}
+            </span>
             <span className="tracking-wide">{label}</span>
           </button>
         ))}

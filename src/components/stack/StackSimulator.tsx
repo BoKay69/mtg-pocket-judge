@@ -1476,7 +1476,7 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div>
               <div className="text-xs font-display font-bold text-mtg-text">
-                Day/Night: {gs.dayNight === "day" ? "☀️ Day" : gs.dayNight === "night" ? "🌙 Night" : "Not Active"}
+                Day/Night: {gs.dayNight === "day" ? <><img src="/icons/sun.svg" alt="Day" className="w-4 h-4 inline-block" /> Day</> : gs.dayNight === "night" ? <><img src="/icons/moon.svg" alt="Night" className="w-4 h-4 inline-block" /> Night</> : "Not Active"}
               </div>
               {gs.dayNight !== null && (
                 <div className="text-[10px] text-mtg-text-muted mt-0.5">
@@ -1489,13 +1489,13 @@ export function StackSimulator({ format = "modern" }: { format?: string }) {
                 onClick={() => dispatch({ type: "set_day_night", state: "day" })}
                 className={cn("px-2.5 py-1 rounded-lg text-xs font-display font-bold border transition-all", gs.dayNight === "day" ? "bg-amber-400/20 border-amber-400 text-amber-300" : "border-mtg-border text-mtg-text-dim hover:border-amber-400/50 hover:text-amber-300")}
               >
-                ☀️ Day
+                <img src="/icons/sun.svg" alt="Day" className="w-4 h-4 inline-block" /> Day
               </button>
               <button
                 onClick={() => dispatch({ type: "set_day_night", state: "night" })}
                 className={cn("px-2.5 py-1 rounded-lg text-xs font-display font-bold border transition-all", gs.dayNight === "night" ? "bg-indigo-400/20 border-indigo-400 text-indigo-300" : "border-mtg-border text-mtg-text-dim hover:border-indigo-400/50 hover:text-indigo-300")}
               >
-                🌙 Night
+                <img src="/icons/moon.svg" alt="Night" className="w-4 h-4 inline-block" /> Night
               </button>
               {gs.dayNight !== null && (
                 <button
