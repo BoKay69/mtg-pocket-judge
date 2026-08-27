@@ -357,6 +357,13 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       related: ["Protection", "Ward"],
     },
     {
+      name: "Adventure",
+      rule: "A card with adventure has two halves: an instant or sorcery half you cast first, and a creature half you cast later from exile. Cast the instant/sorcery, then exile the card; you may cast the creature from exile afterward.",
+      example: "Bonecrusher Giant's adventure half, Stomp, deals 2 damage. After it resolves, the card is exiled and you may later cast Bonecrusher Giant as a creature.",
+      tip: "The creature half is cast from exile — it can be countered normally, and ETB triggers fire. The adventure spell and creature spell are separate casts.",
+      related: ["Flashback", "Foretell", "Warp"],
+    },
+    {
       name: "Affinity",
       rule: "This spell costs {1} less to cast for each permanent of the specified type you control.",
       example: "Affinity for artifacts with 5 artifacts in play reduces the cost by {5}.",
@@ -453,6 +460,20 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       example: "Bestow lets you enchant a creature — if that creature dies, the Aura becomes a creature on its own.",
       tip: "While on the stack for its bestow cost, it's an Aura spell — countering it means it never becomes a creature.",
       related: ["Aura Swap", "Enchantment"],
+    },
+    {
+      name: "Behold",
+      rule: "A mechanic that gives a bonus if you control a creature of a specified type or can reveal one from your hand.",
+      example: "A spell with 'Behold Elf' gives you an extra effect if you control an Elf or reveal one from your hand when you cast it.",
+      tip: "Changelings count as every creature type, so they always satisfy Behold conditions.",
+      related: ["Changeling", "Kindred"],
+    },
+    {
+      name: "Blight",
+      rule: "A keyword action. To blight N, put N -1/-1 counters on a creature you control. Often used as an additional cost for powerful effects.",
+      example: "You cast a spell with 'As an additional cost, blight 2.' You put two -1/-1 counters on your 3/3 creature, making it a 1/1, but get a powerful effect in return.",
+      tip: "You can put more -1/-1 counters on a creature than its toughness — it will die to state-based actions, but you still get the blight benefit.",
+      related: ["Wither", "Persist", "-1/-1 Counters"],
     },
     {
       name: "Bloodthirst",
@@ -840,6 +861,13 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       related: ["Cipher", "Echo"],
     },
     {
+      name: "Heroic",
+      rule: "A returning mechanic. Whenever you cast a spell that targets this creature, trigger the heroic ability.",
+      example: "A creature with Heroic gets a +1/+1 counter whenever you target it with a spell. Combat tricks become permanent buffs.",
+      tip: "The spell must TARGET the creature — auras and pump spells work, but board-wide buffs don't trigger Heroic.",
+      related: ["Prowess", "Magecraft"],
+    },
+    {
       name: "Hideaway",
       rule: "This land enters tapped; when it enters, look at the top N cards, exile one face-down, put the rest on the bottom.",
       example: "Hideaway 4 tucks a card under the land to cast for free when you meet the condition.",
@@ -901,6 +929,13 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       example: "Kicker {3}: pay {3} more to get the spell's bonus mode on top of the base effect.",
       tip: "Kicker is an optional additional cost — paying it is decided on cast, and the spell is still castable without it.",
       related: ["Multikicker", "Entwine"],
+    },
+    {
+      name: "Kindred",
+      rule: "A type indicator (formerly 'Tribal') that allows non-creature cards to have creature subtypes. Spells and enchantments with Kindred share creature types and can be affected by type-matters effects.",
+      example: "A Kindred Instant with the Elf subtype counts as an Elf spell — it triggers 'whenever you cast an Elf spell' abilities.",
+      tip: "Kindred replaced the older 'Tribal' supertype. Cards that reference creature types can affect Kindred spells with the matching subtype.",
+      related: ["Changeling", "Behold"],
     },
     {
       name: "Landwalk",
@@ -1078,6 +1113,13 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       related: ["Offspring", "Replicate"],
     },
     {
+      name: "Prepare",
+      rule: "A returning mechanic. Prepare N means exile this card from your hand face down. You may look at it, and you may cast it later for its prepare cost.",
+      example: "You prepare a card on turn 2 by exiling it face down. On turn 5, you cast it for its reduced prepare cost instead of its mana cost.",
+      tip: "Prepared cards are exiled face down — opponents can't see what you're saving. Plan ahead for big plays.",
+      related: ["Foretell", "Suspend"],
+    },
+    {
       name: "Prototype",
       rule: "Cast this artifact for its prototype cost to get a smaller, colored version with different power and toughness.",
       example: "Prototype {1}{R} as a 2/1 instead of the full {8} 7/7 — cheaper but weaker.",
@@ -1132,6 +1174,13 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       example: "Reconfigure turns an artifact creature into Equipment and back.",
       tip: "While attached, the reconfigured card loses its creature status — it's just Equipment on the host creature.",
       related: ["Living Weapon", "Mutate"],
+    },
+    {
+      name: "Recruit",
+      rule: "A new keyword. When a creature with Recruit enters the battlefield, you may search your library for a creature card with lesser mana value and put it onto the battlefield.",
+      example: "Your 5-mana creature with Recruit enters. You search your library for a creature with mana value 4 or less and put it directly onto the battlefield.",
+      tip: "Recruit puts the creature directly onto the battlefield — it's not cast, so cast triggers don't fire, but ETB triggers do.",
+      related: ["Cascade", "Collected Company"],
     },
     {
       name: "Regenerate",
@@ -1244,6 +1293,13 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       example: "Splice onto Arcane: pay the splice cost while casting an Arcane spell to add this effect.",
       tip: "Spliced cards stay in your hand — you can splice the same card onto multiple spells in a turn.",
       related: ["Entwine", "Fuse"],
+    },
+    {
+      name: "Storied",
+      rule: "An ability word for effects that check if a legendary creature or artifact is on the battlefield or in your graveyard.",
+      example: "A spell with Storied deals 3 damage, but if you control a legendary permanent, it deals 5 instead.",
+      tip: "Legendary lands count for Storied. Even a Legendary land like Urborg satisfies the condition.",
+      related: ["Historic", "Legendary"],
     },
     {
       name: "Storm",
@@ -1363,6 +1419,13 @@ export const KEYWORDS: Record<KeywordCategory, KeywordEntry[]> = {
       example: "Vanishing 3: powerful for three turns, then gone.",
       tip: "Like fading, but time counters instead of fade counters — adding counters extends its life.",
       related: ["Fading", "Phasing"],
+    },
+    {
+      name: "Vivid",
+      rule: "An ability word for effects that scale based on the number of different colors among permanents you control. More colors means stronger effects.",
+      example: "A creature with Vivid draws cards equal to the number of colors among permanents you control. With a white, blue, and green permanent out, you draw 3.",
+      tip: "Multicolor permanents count all their colors. A Simic creature counts as both blue AND green for Vivid.",
+      related: ["Converge", "Domain", "Sunburst"],
     },
         {
       name: "Warp",
